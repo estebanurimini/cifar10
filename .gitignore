@@ -29,6 +29,12 @@ htmlcov/
 .env
 .envrc
 
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Package build artifacts
+*.egg-info
+
 # IDE — JetBrains / PyCharm
 .idea/
 *.iml
