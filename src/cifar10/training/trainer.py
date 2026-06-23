@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,7 +19,7 @@ from tqdm.auto import tqdm
 from cifar10.config import BaseConfig
 from cifar10.training.evaluate import evaluate
 from cifar10.training.scheduler import build_scheduler
-from cifar10.utils.checkpoint import save_checkpoint
+from cifar10.utils.checkpoint import save_checkpoint, load_checkpoint
 from cifar10.utils.ema import EMA
 
 
@@ -34,7 +35,7 @@ class TrainerConfig(BaseConfig):
     warmup_epochs: int = 5
     mixup_alpha: float = 0.2
     cutmix_alpha: float = 1.0
-    run_dir: Path = field(default_factory=lambda: Path("./.runs/unnamed"))
+    run_dir: Path = field(default_factory=lambda: Path("./.runs"))
 
 
 class BaseTrainer(ABC):
@@ -102,12 +103,14 @@ class BaseTrainer(ABC):
         self,
         train_loader: DataLoader,
         val_loader: DataLoader,
+        resume_from: Path | None = None,
     ) -> float:
         """Run the full training loop.
 
         Args:
             train_loader: Training data.
             val_loader: Validation / test data.
+            resume_from: Optional path to a checkpoint to resume from.
 
         Returns:
             Best validation accuracy achieved (percentage).
@@ -115,7 +118,12 @@ class BaseTrainer(ABC):
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
+        # Handle resume
+        start_epoch = 1
         best_acc = 0.0
+        if resume_from is not None and resume_from.exists():
+            start_epoch, best_acc = self._resume(resume_from)
+
         csv_exists = self.csv_log.exists()
 
         with open(self.csv_log, "a", newline="") as csv_file:
@@ -126,7 +134,7 @@ class BaseTrainer(ABC):
                     "val_acc", "best_acc", "lr",
                 ])
 
-            for epoch in range(1, self.config.epochs + 1):
+            for epoch in range(start_epoch, self.config.epochs + 1):
                 train_loss = self._train_epoch(train_loader, epoch)
                 self.scheduler.step()
 
@@ -145,9 +153,9 @@ class BaseTrainer(ABC):
                 csv_file.flush()
 
                 if val_acc >= best_acc:
-                    save_checkpoint(self.best_ckpt, self._state_dict(epoch))
+                    save_checkpoint(self.best_ckpt, self._state_dict(epoch, best_acc))
 
-                save_checkpoint(self.last_ckpt, self._state_dict(epoch))
+                save_checkpoint(self.last_ckpt, self._state_dict(epoch, best_acc))
 
                 tqdm.write(
                     f"[{epoch:03d}/{self.config.epochs}] "
@@ -235,17 +243,77 @@ class BaseTrainer(ABC):
         self.ema.apply_to(ema_model)
         return ema_model.to(self.device)
 
-    def _state_dict(self, epoch: int | None = None) -> dict[str, Any]:
+    def _state_dict(
+        self,
+        epoch: int | None = None,
+        best_acc: float | None = None,
+    ) -> dict[str, Any]:
         state = {
             "model": self.model.state_dict(),
             "ema": self.ema.shadow,
             "optimizer": self.optimizer.state_dict(),
             "scheduler": self.scheduler.state_dict(),
+            "scaler": self.scaler.state_dict(),
+            "config": dataclasses.asdict(self.config),
+            "model_name": self._get_model_name(),
         }
         if epoch is not None:
             state["epoch"] = epoch
+        if best_acc is not None:
+            state["best_acc"] = best_acc
         return state
 
+    def _get_model_name(self) -> str:
+        """Return a short identifier for the model architecture.
+
+        Override in subclasses if the default class name isn't suitable.
+        """
+        return type(self.model).__name__
+
+    def _resume(self, resume_from: Path | dict[str, Any]) -> int:
+        """Restore training state from a checkpoint.
+
+        Args:
+            resume_from: Either a path to a checkpoint file, or a pre-loaded
+                checkpoint dict.
+
+        Returns:
+            The next epoch to start training from (1-indexed).
+        """
+        ckpt = (
+            resume_from
+            if isinstance(resume_from, dict)
+            else load_checkpoint(resume_from, self.device)
+        )
+
+        # Load model weights
+        self.model.load_state_dict(ckpt["model"])
+
+        # Recreate optimizer & scheduler (since build_* create new param refs)
+        self.optimizer = self._build_optimizer()
+        self.scheduler = self._build_scheduler()
+
+        # Restore optimizer & scheduler state (load_state_dict overwrites data)
+        self.optimizer.load_state_dict(ckpt["optimizer"])
+        self.scheduler.load_state_dict(ckpt["scheduler"])
+
+        # Restore EMA
+        self.ema.shadow = ckpt["ema"]
+
+        # Restore AMP scaler if available (backward compat)
+        if "scaler" in ckpt:
+            self.scaler.load_state_dict(ckpt["scaler"])
+
+        # Restore best_acc from the checkpoint metadata
+        best_acc = ckpt.get("best_acc", 0.0)
+
+        # Next epoch: last completed epoch + 1
+        start_epoch = ckpt.get("epoch", 0) + 1
+
+        print(f"Resumed from epoch {ckpt.get('epoch', 0)}. "
+              f"Starting at epoch {start_epoch}.")
+
+        return start_epoch, best_acc
 
 
 class StandardTrainer(BaseTrainer):

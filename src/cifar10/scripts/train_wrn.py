@@ -1,10 +1,11 @@
 """Training script for WideResNet on CIFAR10.
 
 Uses SGD optimizer (as is standard for WRN) and a validation split from the
-training set. Writes checkpoints and logs to ``./.runs/wrn_cifar10/``.
+training set. Writes checkpoints and logs to ``./.runs/wrn/``.
 
 Usage:
     python -m cifar10.scripts.train_wrn
+    python -m cifar10.scripts.train_wrn --resume .runs/wrn/checkpoints/last.pt
 """
 
 from dataclasses import dataclass, field
@@ -15,7 +16,7 @@ import torch.nn as nn
 
 from cifar10.data import build_cifar10_loaders
 from cifar10.models import WideResNet
-from cifar10.training import BaseTrainer
+from cifar10.training import BaseTrainer, evaluate
 from cifar10.training.trainer import TrainerConfig
 from cifar10.utils import set_seed, get_device
 
@@ -39,7 +40,7 @@ class WRNConfig(TrainerConfig):
     epochs: int = 200
 
     # paths
-    run_dir: Path = field(default_factory=lambda: Path("./.runs/wrn_cifar10"))
+    run_dir: Path = field(default_factory=lambda: Path("./.runs/wrn"))
 
 
 class WRNTrainer(BaseTrainer):
@@ -65,6 +66,18 @@ class WRNTrainer(BaseTrainer):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train WideResNet on CIFAR10.")
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to a checkpoint to resume training from "
+             "(e.g., .runs/wrn/checkpoints/last.pt).",
+    )
+    args = parser.parse_args()
+
     cfg = WRNConfig()
     set_seed(cfg.seed)
     device = get_device()
@@ -88,10 +101,9 @@ def main():
     ).to(device)
 
     trainer = WRNTrainer(model, cfg, device)
-    best_acc = trainer.train(train_loader, val_loader)
+    best_acc = trainer.train(train_loader, val_loader, resume_from=args.resume)
 
     # Final evaluation on held-out test set
-    from cifar10.training import evaluate
     test_loss, test_acc = evaluate(model, test_loader, device)
     print(f"\n{'=' * 60}")
     print(f"TEST ACCURACY: {test_acc:.2f}%")

@@ -5,6 +5,7 @@ First run ``python -m cifar10.scripts.train_wrn`` to generate the teacher.
 
 Usage:
     python -m cifar10.scripts.train_deit
+    python -m cifar10.scripts.train_deit --resume .runs/deit/checkpoints/last.pt
 """
 
 from dataclasses import dataclass, field
@@ -42,11 +43,11 @@ class DeiTConfig(TrainerConfig):
     # distillation
     teacher_reliance: float = 0.7
     teacher_ckpt: Path = field(
-        default_factory=lambda: Path("./.runs/wrn_cifar10/checkpoints/best.pt")
+        default_factory=lambda: Path("./.runs/wrn/checkpoints/best.pt")
     )
 
     # paths
-    run_dir: Path = field(default_factory=lambda: Path("./.runs/deit_cifar10"))
+    run_dir: Path = field(default_factory=lambda: Path("./.runs/deit"))
 
 
 class DistillationTrainer(BaseTrainer):
@@ -92,6 +93,20 @@ def build_teacher(config: DeiTConfig) -> WideResNet:
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Train DeiT on CIFAR10 with distillation."
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to a checkpoint to resume training from "
+             "(e.g., .runs/deit/checkpoints/last.pt).",
+    )
+    args = parser.parse_args()
+
     cfg = DeiTConfig()
     set_seed(cfg.seed)
     device = get_device()
@@ -137,7 +152,7 @@ def main():
     ).to(device)
 
     trainer = DistillationTrainer(model, cfg, device, teacher)
-    trainer.train(train_loader, test_loader)
+    trainer.train(train_loader, test_loader, resume_from=args.resume)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 Usage:
     python -m cifar10.scripts.train_vit
+    python -m cifar10.scripts.train_vit --resume .runs/vit/checkpoints/last.pt
 """
 
 from dataclasses import dataclass, field
@@ -26,7 +27,7 @@ class ViTConfig(TrainerConfig):
     mlp_ratio: float = 4
     dropout: float = 0.1
     # paths
-    run_dir: Path = field(default_factory=lambda: Path("./.runs/vit_cifar10"))
+    run_dir: Path = field(default_factory=lambda: Path("./.runs/vit"))
 
 
 class ViTTrainer(StandardTrainer):
@@ -45,6 +46,18 @@ class ViTTrainer(StandardTrainer):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train ViT on CIFAR10.")
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=None,
+        help="Path to a checkpoint to resume training from "
+             "(e.g., .runs/vit/checkpoints/last.pt).",
+    )
+    args = parser.parse_args()
+
     cfg = ViTConfig()
     set_seed(cfg.seed)
     device = get_device()
@@ -69,7 +82,7 @@ def main():
     ).to(device)
 
     trainer = ViTTrainer(model, cfg, device)
-    trainer.train(train_loader, test_loader)
+    trainer.train(train_loader, test_loader, resume_from=args.resume)
 
 
 if __name__ == "__main__":

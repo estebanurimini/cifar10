@@ -16,18 +16,19 @@ src/cifar10/
 │   ├── cifar10.py             # CIFAR10 transforms + dataloader factory
 │   └── augmentations.py       # MixUp / CutMix augmentation
 ├── training/
-│   ├── evaluate.py            # Shared evaluation loop
+│   ├── evaluate.py            # Shared evaluation loop + detailed evaluation
 │   ├── scheduler.py           # Warmup + Cosine annealing factory
-│   └── trainer.py             # BaseTrainer (ABC) + StandardTrainer
+│   └── trainer.py             # BaseTrainer (ABC) + StandardTrainer + resume support
 ├── models/
 │   ├── blocks.py              # Shared transformer blocks (MLP, Attention, etc.)
 │   ├── vit.py                 # ViT model (architecture only)
 │   ├── deit.py                # DeiT model + ConvStemPatchEmbedding (architecture only)
 │   └── wideresnet.py          # WideResNet model (architecture only)
 └── scripts/
-    ├── train_vit.py           # ViT training script
-    ├── train_deit.py          # DeiT distillation training script
-    └── train_wrn.py           # WideResNet training script
+    ├── train_vit.py           # ViT training script (CLI with --resume)
+    ├── train_deit.py          # DeiT distillation training script (CLI with --resume)
+    ├── train_wrn.py           # WideResNet training script (CLI with --resume)
+    └── evaluate_model.py      # Standalone evaluation CLI for trained models
 ```
 
 ## Currently Implemented Architectures
@@ -74,13 +75,13 @@ All outputs are written to hidden folders at the project root:
 
 ```
 .runs/
-├── vit_cifar10/
+├── vit/
 │   ├── checkpoints/          # best.pt, last.pt
 │   └── logs/                 # metrics.csv
-├── deit_cifar10/
+├── deit/
 │   ├── checkpoints/
 │   └── logs/
-└── wrn_cifar10/
+└── wrn/
     ├── checkpoints/
     └── logs/
 
@@ -98,6 +99,57 @@ python -m cifar10.scripts.train_wrn
 # 2. Train the student with distillation
 python -m cifar10.scripts.train_deit
 ```
+
+### Resuming Training
+
+All training scripts accept a `--resume` flag to continue from a saved checkpoint:
+
+```bash
+# Resume ViT from its last checkpoint
+python -m cifar10.scripts.train_vit --resume .runs/vit/checkpoints/last.pt
+
+# Resume WideResNet
+python -m cifar10.scripts.train_wrn --resume .runs/wrn/checkpoints/last.pt
+
+# Resume DeiT
+python -m cifar10.scripts.train_deit --resume .runs/deit/checkpoints/last.pt
+```
+
+Resuming restores:
+- Model weights (including EMA shadow weights)
+- Optimizer state (momentum, adaptive learning rates)
+- Learning rate scheduler state (warmup/cosine position)
+- AMP gradient scaler
+
+Logs are appended to the existing `metrics.csv` file, avoiding duplicates.
+
+### Evaluating a Trained Model
+
+The `evaluate_model.py` script loads a checkpoint and runs detailed evaluation on the CIFAR-10 test set:
+
+```bash
+python -m cifar10.scripts.evaluate_model \
+    --model vit \
+    --checkpoint .runs/vit/checkpoints/best.pt
+```
+
+Output includes:
+- Test loss and overall accuracy
+- Per-class accuracy breakdown
+- Inference throughput (images/second)
+
+New checkpoints (saved after this feature was added) embed the full model configuration, so the evaluation script reconstructs the model with the exact hyperparameters used during training. Legacy checkpoints are handled transparently by falling back to default configs.
+
+Optional arguments:
+
+| Flag | Default | Description |
+|---|---|---|
+| `--model` | (required) | Architecture: `vit`, `wrn`, or `deit` |
+| `--checkpoint` | (required) | Path to the checkpoint file |
+| `--batch-size` | 128 | Batch size for evaluation |
+| `--data-dir` | `./.data` | CIFAR-10 dataset root |
+| `--num-workers` | 0 | DataLoader workers |
+| `--no-detailed` | (flag) | Skip per-class accuracy breakdown |
 
 ## Extending with a New Model
 
@@ -117,11 +169,3 @@ All scripts automatically detect and use:
 - **CUDA** (NVIDIA GPU)
 - **CPU** (fallback)
 
-## Backward Compatibility
-
-The original monolithic standalone scripts are preserved and still work:
-
-```bash
-python src/cifar10/models/vit_cifar10.py
-python src/cifar10/models/wideresnet_cifar10.py
-python src/cifar10/models/deit_cifar10.py
