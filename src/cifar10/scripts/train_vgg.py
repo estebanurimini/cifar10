@@ -1,11 +1,13 @@
-"""Training script for WideResNet on CIFAR10.
+"""Training script for VGG on CIFAR10.
 
-Uses SGD optimizer (as is standard for WRN) and a validation split from the
-training set. Writes checkpoints and logs to ``./.runs/wrn/``.
+Uses SGD with momentum (standard for VGG) and cosine annealing. Trains with
+a validation split from the training set and RandAugment. Writes checkpoints
+and logs to ``./.runs/vgg/``.
 
 Usage:
-    python -m cifar10.scripts.train_wrn
-    python -m cifar10.scripts.train_wrn --resume .runs/wrn/checkpoints/last.pt
+    python -m cifar10.scripts.train_vgg
+    python -m cifar10.scripts.train_vgg --variant vgg11_bn
+    python -m cifar10.scripts.train_vgg --resume .runs/vgg/checkpoints/last.pt
 """
 
 from dataclasses import dataclass, field
@@ -15,24 +17,23 @@ import torch
 import torch.nn as nn
 
 from cifar10.data import build_cifar10_loaders
-from cifar10.models import WideResNet
+from cifar10.models import VGG
 from cifar10.training import BaseTrainer, evaluate
 from cifar10.training.trainer import TrainerConfig
 from cifar10.utils import set_seed, get_device
 
 
 @dataclass
-class WRNConfig(TrainerConfig):
-    """WideResNet-specific configuration."""
+class VGGConfig(TrainerConfig):
+    """VGG-specific configuration."""
     # model
-    depth: int = 16
-    widen_factor: int = 4
-    wrn_dropout: float = 0.0
+    variant: str = "vgg16_bn"  # "vgg11_bn" or "vgg16_bn"
+    vgg_dropout: float = 0.5
 
-    # optimization (SGD is standard for WRN)
-    lr: float = 0.1
+    # optimization (SGD with momentum is standard for VGG)
+    lr: float = 0.05
     weight_decay: float = 5e-4
-    warmup_epochs: int = 0  # no warmup for WRN
+    warmup_epochs: int = 0  # no warmup
     min_lr: float = 0.0
     momentum: float = 0.9
 
@@ -40,11 +41,11 @@ class WRNConfig(TrainerConfig):
     epochs: int = 200
 
     # paths
-    run_dir: Path = field(default_factory=lambda: Path("./.runs/wrn"))
+    run_dir: Path = field(default_factory=lambda: Path(".runs/vgg"))
 
 
-class WRNTrainer(BaseTrainer):
-    """WideResNet trainer using SGD with momentum and cosine annealing."""
+class VGGTrainer(BaseTrainer):
+    """VGG trainer using SGD with momentum and cosine annealing."""
 
     def _build_optimizer(self) -> torch.optim.Optimizer:
         return torch.optim.SGD(
@@ -68,22 +69,29 @@ class WRNTrainer(BaseTrainer):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Train WideResNet on CIFAR10.")
+    parser = argparse.ArgumentParser(description="Train VGG on CIFAR10.")
+    parser.add_argument(
+        "--variant",
+        type=str,
+        default="vgg16_bn",
+        choices=["vgg11_bn", "vgg16_bn"],
+        help="VGG variant (default: vgg16_bn).",
+    )
     parser.add_argument(
         "--resume",
         type=Path,
         default=None,
         help="Path to a checkpoint to resume training from "
-             "(e.g., .runs/wrn/checkpoints/last.pt).",
+             "(e.g., .runs/vgg/checkpoints/last.pt).",
     )
     args = parser.parse_args()
 
-    cfg = WRNConfig()
+    cfg = VGGConfig(variant=args.variant)
     set_seed(cfg.seed)
     device = get_device()
     print(f"Using device: {device}")
 
-    # WRN uses a validation split from training data
+    # VGG uses a validation split from training data (like WRN)
     train_loader, val_loader, test_loader = build_cifar10_loaders(
         data_dir=cfg.data_dir,
         batch_size=cfg.batch_size,
@@ -93,14 +101,17 @@ def main():
         use_randaugment=True,
     )
 
-    model = WideResNet(
-        depth=cfg.depth,
-        widen_factor=cfg.widen_factor,
-        dropout_rate=cfg.wrn_dropout,
+    model = VGG(
+        variant=cfg.variant,
         num_classes=10,
+        dropout=cfg.vgg_dropout,
     ).to(device)
 
-    trainer = WRNTrainer(model, cfg, device)
+    print(f"VGG variant: {cfg.variant}")
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {total_params / 1e6:.3f}M")
+
+    trainer = VGGTrainer(model, cfg, device)
     best_acc = trainer.train(train_loader, val_loader, resume_from=args.resume)
 
     # Final evaluation on held-out test set

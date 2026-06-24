@@ -16,6 +16,15 @@ Usage:
         --model wrn \\
         --checkpoint .runs/wrn/checkpoints/best.pt
 
+    # New models
+    python -m cifar10.scripts.evaluate_model \\
+        --model vgg \\
+        --checkpoint .runs/vgg/checkpoints/best.pt
+
+    python -m cifar10.scripts.evaluate_model \\
+        --model resnet \\
+        --checkpoint .runs/resnet/checkpoints/best.pt
+
     # With custom batch size
     python -m cifar10.scripts.evaluate_model \\
         --model deit \\
@@ -59,11 +68,15 @@ def _register_defaults():
     from cifar10.scripts.train_vit import ViTConfig
     from cifar10.scripts.train_wrn import WRNConfig
     from cifar10.scripts.train_deit import DeiTConfig
-    from cifar10.models import ViT, DeiT, WideResNet
+    from cifar10.scripts.train_vgg import VGGConfig
+    from cifar10.scripts.train_resnet import ResNetConfig
+    from cifar10.models import ViT, DeiT, WideResNet, VGG, ResNetCIFAR
 
     MODEL_REGISTRY["vit"] = (ViTConfig, _build_vit)
     MODEL_REGISTRY["wrn"] = (WRNConfig, _build_wrn)
     MODEL_REGISTRY["deit"] = (DeiTConfig, _build_deit)
+    MODEL_REGISTRY["vgg"] = (VGGConfig, _build_vgg)
+    MODEL_REGISTRY["resnet"] = (ResNetConfig, _build_resnet)
 
     # Store model classes for checkpoint-based rebuild
     global _MODEL_CLASSES
@@ -71,6 +84,8 @@ def _register_defaults():
         "vit": ViT,
         "wrn": WideResNet,
         "deit": DeiT,
+        "vgg": VGG,
+        "resnet": ResNetCIFAR,
     }
 
 
@@ -113,6 +128,23 @@ def _build_deit(config, device):
     ).to(device)
 
 
+def _build_vgg(config, device):
+    from cifar10.models import VGG
+    return VGG(
+        variant=config.variant,
+        num_classes=10,
+        dropout=config.vgg_dropout,
+    ).to(device)
+
+
+def _build_resnet(config, device):
+    from cifar10.models import ResNetCIFAR
+    return ResNetCIFAR(
+        variant=config.variant,
+        num_classes=10,
+    ).to(device)
+
+
 # ---------------------------------------------------------------------------
 # Config reconstruction from checkpoint
 # ---------------------------------------------------------------------------
@@ -122,7 +154,7 @@ def reconstruct_config(config_dict: dict, model_type: str):
 
     Args:
         config_dict: The ``"config"`` dict stored in the checkpoint.
-        model_type: One of ``"vit"``, ``"wrn"``, ``"deit"``.
+        model_type: One of ``"vit"``, ``"wrn"``, ``"deit"``, ``"vgg"``, ``"resnet"``.
 
     Returns:
         A config dataclass instance with fields populated from the dict.
@@ -158,7 +190,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        choices=["vit", "wrn", "deit"],
+        choices=["vit", "wrn", "deit", "vgg", "resnet"],
         required=True,
         help="Model architecture to evaluate.",
     )

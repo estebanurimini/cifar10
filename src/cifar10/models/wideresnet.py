@@ -20,16 +20,18 @@ class BasicBlock(nn.Module):
     ):
         super().__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
+        self.relu1 = nn.ReLU(inplace=True)
         self.conv1 = nn.Conv2d(
             in_planes, out_planes, kernel_size=3,
             stride=stride, padding=1, bias=False,
         )
         self.bn2 = nn.BatchNorm2d(out_planes)
+        self.relu2 = nn.ReLU(inplace=True)
+        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
         self.conv2 = nn.Conv2d(
             out_planes, out_planes, kernel_size=3,
             stride=1, padding=1, bias=False,
         )
-        self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
 
         if stride == 1 and in_planes == out_planes:
             self.shortcut = nn.Identity()
@@ -40,11 +42,13 @@ class BasicBlock(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out = self.conv1(F.relu(self.bn1(x)))
-        out = self.conv2(F.relu(self.bn2(out)))
+        out = self.relu1(self.bn1(x))
+        shortcut = self.shortcut(x)
+        out = self.conv1(out)
+        out = self.relu2(self.bn2(out))
         out = self.dropout(out)
-        out += self.shortcut(x)
-        return out
+        out = self.conv2(out)
+        return out + shortcut
 
 
 class NetworkBlock(nn.Module):
@@ -52,7 +56,7 @@ class NetworkBlock(nn.Module):
 
     def __init__(
         self,
-        nb_layers: int,
+        num_layers: int,
         in_planes: int,
         out_planes: int,
         stride: int,
@@ -66,7 +70,7 @@ class NetworkBlock(nn.Module):
                 stride if i == 0 else 1,
                 dropout_rate,
             )
-            for i in range(nb_layers)
+            for i in range(num_layers)
         ]
         self.block = nn.Sequential(*layers)
 
@@ -86,8 +90,8 @@ class WideResNet(nn.Module):
 
     def __init__(
         self,
-        depth: int = 28,
-        widen_factor: int = 10,
+        depth: int = 16,
+        widen_factor: int = 4,
         dropout_rate: float = 0.0,
         num_classes: int = 10,
     ):
@@ -102,14 +106,28 @@ class WideResNet(nn.Module):
         self.block2 = NetworkBlock(n, channels[1], channels[2], 2, dropout_rate)
         self.block3 = NetworkBlock(n, channels[2], channels[3], 2, dropout_rate)
         self.bn = nn.BatchNorm2d(channels[3])
+        self.relu = nn.ReLU(inplace=True)
         self.fc = nn.Linear(channels[3], num_classes)
+
+        self._init_weights()
+
+    def _init_weights(self) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.conv1(x)
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        x = F.relu(self.bn(x))
-        x = F.adaptive_avg_pool2d(x, 1)
-        x = torch.flatten(x, 1)
-        return self.fc(x)
+        x = self.relu(self.bn(x))
+        x = torch.mean(x, dim=(2, 3))
+        x = self.fc(x)
+        return x

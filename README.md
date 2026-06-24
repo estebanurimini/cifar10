@@ -23,21 +23,27 @@ src/cifar10/
 │   ├── blocks.py              # Shared transformer blocks (MLP, Attention, etc.)
 │   ├── vit.py                 # ViT model (architecture only)
 │   ├── deit.py                # DeiT model + ConvStemPatchEmbedding (architecture only)
-│   └── wideresnet.py          # WideResNet model (architecture only)
+│   ├── wideresnet.py          # WideResNet model (architecture only)
+│   ├── vgg.py                 # VGG11-BN + VGG16-BN for CIFAR10 (architecture only)
+│   └── resnet_cifar.py        # ResNet20 + ResNet56 for CIFAR10 (architecture only)
 └── scripts/
     ├── train_vit.py           # ViT training script (CLI with --resume)
     ├── train_deit.py          # DeiT distillation training script (CLI with --resume)
     ├── train_wrn.py           # WideResNet training script (CLI with --resume)
+    ├── train_vgg.py           # VGG training script (CLI with --variant and --resume)
+    ├── train_resnet.py        # ResNet training script (CLI with --variant and --resume)
     └── evaluate_model.py      # Standalone evaluation CLI for trained models
 ```
 
 ## Currently Implemented Architectures
 
-| Model | Architecture File | Training Script | Key Features |
-|---|---|---|---|
-| **ViT** | `models/vit.py` | `scripts/train_vit.py` | Vision Transformer, MixUp + CutMix, AdamW + Warmup + Cosine |
-| **DeiT** | `models/deit.py` | `scripts/train_deit.py` | Convolutional stem, distillation token, stochastic depth, hard distillation from a WRN teacher |
-| **WideResNet** | `models/wideresnet.py` | `scripts/train_wrn.py` | WRN-28-10 CNN baseline, SGD + Cosine, RandAugment |
+| Model | Architecture File | Training Script | Variants | Key Features |
+|---|---|---|---|---|
+| **VGG** | `models/vgg.py` | `scripts/train_vgg.py` | VGG11-BN, VGG16-BN | CIFAR10-adapted (3 max-pools instead of 5), SGD + Cosine, RandAugment |
+| **ResNet** | `models/resnet_cifar.py` | `scripts/train_resnet.py` | ResNet20, ResNet56 | CIFAR10 variant (3×3 conv, no max-pool), SGD + Warmup + Cosine, MixUp/CutMix, RandAugment |
+| **ViT** | `models/vit.py` | `scripts/train_vit.py` | — | Vision Transformer, MixUp + CutMix, AdamW + Warmup + Cosine |
+| **DeiT** | `models/deit.py` | `scripts/train_deit.py` | — | Convolutional stem, distillation token, stochastic depth, hard distillation from a WRN teacher |
+| **WideResNet** | `models/wideresnet.py` | `scripts/train_wrn.py` | WRN-28-10 | Pre-activation blocks, SGD + Cosine, RandAugment |
 
 ## Setup
 
@@ -59,6 +65,14 @@ Dependencies: `torch`, `torchvision`, `tqdm`, `jupyter`.
 Each architecture has a dedicated training script. Run via module:
 
 ```bash
+# VGG training (default: VGG16-BN)
+python -m cifar10.scripts.train_vgg
+python -m cifar10.scripts.train_vgg --variant vgg11_bn
+
+# ResNet training (default: ResNet56)
+python -m cifar10.scripts.train_resnet
+python -m cifar10.scripts.train_resnet --variant resnet20
+
 # ViT training
 python -m cifar10.scripts.train_vit
 
@@ -81,7 +95,13 @@ All outputs are written to hidden folders at the project root:
 ├── deit/
 │   ├── checkpoints/
 │   └── logs/
-└── wrn/
+├── wrn/
+│   ├── checkpoints/
+│   └── logs/
+├── vgg/
+│   ├── checkpoints/
+│   └── logs/
+└── resnet/
     ├── checkpoints/
     └── logs/
 
@@ -113,6 +133,12 @@ python -m cifar10.scripts.train_wrn --resume .runs/wrn/checkpoints/last.pt
 
 # Resume DeiT
 python -m cifar10.scripts.train_deit --resume .runs/deit/checkpoints/last.pt
+
+# Resume VGG
+python -m cifar10.scripts.train_vgg --resume .runs/vgg/checkpoints/last.pt
+
+# Resume ResNet
+python -m cifar10.scripts.train_resnet --resume .runs/resnet/checkpoints/last.pt
 ```
 
 Resuming restores:
@@ -144,7 +170,7 @@ Optional arguments:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--model` | (required) | Architecture: `vit`, `wrn`, or `deit` |
+| `--model` | (required) | Architecture: `vit`, `wrn`, `deit`, `vgg`, or `resnet` |
 | `--checkpoint` | (required) | Path to the checkpoint file |
 | `--batch-size` | 128 | Batch size for evaluation |
 | `--data-dir` | `./.data` | CIFAR-10 dataset root |
@@ -161,6 +187,7 @@ To add a new architecture:
    - Subclass `StandardTrainer` (or `BaseTrainer` for custom loss)
    - Override `_compute_loss()` if needed
    - Override `_build_optimizer()` / `_build_scheduler()` for different optimizers
+3. **Register in evaluation** by adding your model to `scripts/evaluate_model.py` MODEL_REGISTRY.
 
 ## Device Support
 
@@ -168,4 +195,3 @@ All scripts automatically detect and use:
 - **MPS** (Apple Silicon)
 - **CUDA** (NVIDIA GPU)
 - **CPU** (fallback)
-

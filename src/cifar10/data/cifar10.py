@@ -1,8 +1,10 @@
 """CIFAR10 dataset transforms and dataloader factory."""
 
 from pathlib import Path
+
+import torch
 from torch import device as TorchDevice
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, Subset, random_split
 from torchvision import datasets, transforms
 
 # CIFAR10 normalisation constants (computed from the training set)
@@ -10,6 +12,34 @@ CIFAR10_NORM = {
     "mean": (0.4914, 0.4822, 0.4465),
     "std": (0.2023, 0.1994, 0.2010),
 }
+
+
+class _TransformedSubset(Subset):
+    """A Subset that applies a different transform than the original dataset.
+
+    The parent ``torchvision`` dataset (e.g. ``CIFAR10``) is created **without**
+    transforms. This wrapper slices to the desired indices and applies the
+    correct transform on-the-fly.  This ensures train and validation subsets are
+    disjoint *and* can use different transforms.
+    """
+
+    def __init__(
+        self,
+        dataset: datasets.CIFAR10,
+        indices: list[int],
+        transform: transforms.Compose,
+    ) -> None:
+        super().__init__(dataset, indices)
+        self.transform = transform
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, int]:
+        img, label = self.dataset[self.indices[idx]]   # type: ignore[index,arg-type]
+        if self.transform:
+            img = self.transform(img)
+        return img, label
+
+    def __getitems__(self, indices: list[int]) -> list[tuple[torch.Tensor, int]]:
+        return [self.__getitem__(idx) for idx in indices]
 
 
 def build_cifar10_loaders(
@@ -20,6 +50,7 @@ def build_cifar10_loaders(
     with_validation_split: bool = False,
     validation_pct: float = 0.1,
     use_randaugment: bool = False,
+    download: bool = True,
 ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
     """Build train / validation / test DataLoaders for CIFAR10.
 
@@ -32,11 +63,13 @@ def build_cifar10_loaders(
             training samples.
         validation_pct: Fraction of training data to use for validation.
         use_randaugment: If True, apply RandAugment to training transforms.
+        download: If True, download the dataset.
 
     Returns:
         A tuple ``(train_loader, val_loader, test_loader)``.
         If ``with_validation_split`` is False, ``val_loader`` will be the test
         loader and ``test_loader`` will be ``None``.
+
     """
     pin_memory = device is not None and device.type == "cuda"
 
@@ -60,38 +93,45 @@ def build_cifar10_loaders(
     train_transform = transforms.Compose(train_tfms)
 
     # --- Datasets -------------------------------------------------------------
-    train_dataset = datasets.CIFAR10(
-        root=str(data_dir),
-        train=True,
-        download=True,
-        transform=train_transform,
-    )
-
     test_dataset = datasets.CIFAR10(
         root=str(data_dir),
         train=False,
-        download=True,
+        download=download,
         transform=eval_tfms,
     )
 
-    # --- Validation split (optional) ------------------------------------------
-    val_dataset: datasets.CIFAR10 | None = None
+    train_dataset: datasets.CIFAR10 | Subset
+    val_dataset: datasets.CIFAR10 | Subset | None = None
+
     if with_validation_split:
-        # Use eval transforms for validation subset
-        eval_train = datasets.CIFAR10(
+        # Single base dataset (no transforms) → deterministic split → disjoint
+        # subsets, each with its own transform applied by _TransformedSubset.
+        base_train = datasets.CIFAR10(
             root=str(data_dir),
             train=True,
-            download=False,
-            transform=eval_tfms,
+            download=download,
+            transform=None,
         )
-        val_size = int(validation_pct * len(eval_train))
-        train_size = len(eval_train) - val_size
-        _, val_subset = random_split(
-            eval_train,
+        val_size = int(validation_pct * len(base_train))
+        train_size = len(base_train) - val_size
+
+        # Split the actual dataset (no transforms) → disjoint Subset objects
+        train_subset, val_subset = random_split(
+            base_train,
             [train_size, val_size],
             generator=torch.Generator().manual_seed(42),
         )
-        val_dataset = val_subset  # type: ignore[assignment]
+
+        train_dataset = _TransformedSubset(base_train, train_subset.indices, train_transform)
+        val_dataset = _TransformedSubset(base_train, val_subset.indices, eval_tfms)
+
+    else:
+        train_dataset = datasets.CIFAR10(
+            root=str(data_dir),
+            train=True,
+            download=download,
+            transform=train_transform,
+        )
 
     # --- DataLoaders ----------------------------------------------------------
     train_loader = DataLoader(
