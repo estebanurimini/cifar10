@@ -6,11 +6,18 @@ import torch
 from torch import device as TorchDevice
 from torch.utils.data import DataLoader, Subset, random_split
 from torchvision import datasets, transforms
+from torchvision.transforms import InterpolationMode
 
-# CIFAR10 normalisation constants (computed from the training set)
+# CIFAR10 normalization constants (computed from the training set)
 CIFAR10_NORM = {
     "mean": (0.4914, 0.4822, 0.4465),
     "std": (0.2023, 0.1994, 0.2010),
+}
+
+# ImageNet normalization constants (required for pretrained models)
+IMAGENET_NORM = {
+    "mean": (0.485, 0.456, 0.406),
+    "std": (0.229, 0.224, 0.225),
 }
 
 
@@ -163,3 +170,95 @@ def build_cifar10_loaders(
         return train_loader, val_loader, test_loader
     else:
         return train_loader, test_loader, None
+
+
+def build_cifar10_imagenet_loaders(
+    data_dir: str | Path,
+    image_size: int = 128,
+    batch_size: int = 128,
+    num_workers: int = 0,
+    device: TorchDevice | None = None,
+    download: bool = True,
+) -> tuple[DataLoader, DataLoader]:
+    """Build train / test DataLoaders for CIFAR10 with ImageNet preprocessing.
+
+    Designed for transfer learning with ImageNet-pretrained models (e.g.
+    ConvNeXt). Images are upsampled to ``image_size`` using bicubic
+    interpolation and normalized with ImageNet stats.
+
+    Augmentation pipeline (matching TorchVision's ConvNeXt recipe):
+        - RandomResizedCrop (bicubic)
+        - RandomHorizontalFlip
+        - TrivialAugmentWide (``ta_wide``)
+        - ToTensor
+        - RandomErasing (p=0.1)
+        - Normalize (ImageNet stats)
+
+    Args:
+        data_dir: Root directory for the CIFAR10 dataset.
+        image_size: Target spatial size (default 128).
+        batch_size: Batch size for all loaders.
+        num_workers: Number of DataLoader workers.
+        device: If provided, determines ``pin_memory`` (True for CUDA).
+        download: If True, download the dataset.
+
+    Returns:
+        A tuple ``(train_loader, test_loader)``.
+    """
+    pin_memory = device is not None and device.type == "cuda"
+    bicubic = InterpolationMode.BICUBIC
+
+    # --- Training transforms (ImageNet-style) ---------------------------------
+    train_transform = transforms.Compose([
+        transforms.RandomResizedCrop(
+            image_size,
+            scale=(0.8, 1.0),
+            interpolation=bicubic,
+        ),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.TrivialAugmentWide(),
+        transforms.ToTensor(),
+        transforms.RandomErasing(p=0.1),
+        transforms.Normalize(IMAGENET_NORM["mean"], IMAGENET_NORM["std"]),
+    ])
+
+    # --- Evaluation transforms (ImageNet-style) -------------------------------
+    eval_transform = transforms.Compose([
+        transforms.Resize(image_size, interpolation=bicubic),
+        transforms.ToTensor(),
+        transforms.Normalize(IMAGENET_NORM["mean"], IMAGENET_NORM["std"]),
+    ])
+
+    # --- Datasets -------------------------------------------------------------
+    train_dataset = datasets.CIFAR10(
+        root=str(data_dir),
+        train=True,
+        download=download,
+        transform=train_transform,
+    )
+
+    test_dataset = datasets.CIFAR10(
+        root=str(data_dir),
+        train=False,
+        download=download,
+        transform=eval_transform,
+    )
+
+    # --- DataLoaders ----------------------------------------------------------
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
+
+    return train_loader, test_loader
