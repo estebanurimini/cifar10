@@ -1,6 +1,8 @@
 # CIFAR-10 Classification
 
-This project implements various model architectures for **CIFAR-10** classification (10-class image recognition on 32×32 color images) using PyTorch, with a modular, SOLID-compliant training framework.
+This project implements several model 
+architectures for **CIFAR-10** classification 
+(10-class image recognition on 32×32 color images) using PyTorch, with a modular framework.
 
 ## Project Structure
 
