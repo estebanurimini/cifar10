@@ -25,13 +25,15 @@ src/cifar10/
 │   ├── deit.py                # DeiT model + ConvStemPatchEmbedding (architecture only)
 │   ├── wideresnet.py          # WideResNet model (architecture only)
 │   ├── vgg.py                 # VGG11-BN + VGG16-BN for CIFAR10 (architecture only)
-│   └── resnet_cifar.py        # ResNet20 + ResNet56 for CIFAR10 (architecture only)
+│   ├── resnet_cifar.py        # ResNet20 + ResNet56 for CIFAR10 (architecture only)
+│   └── convnext.py            # ConvNeXt Tiny with ImageNet pretrained weights (architecture only)
 └── scripts/
     ├── train_vit.py           # ViT training script (CLI with --resume)
     ├── train_deit.py          # DeiT distillation training script (CLI with --resume)
     ├── train_wrn.py           # WideResNet training script (CLI with --resume)
     ├── train_vgg.py           # VGG training script (CLI with --variant and --resume)
     ├── train_resnet.py        # ResNet training script (CLI with --variant and --resume)
+    ├── train_convnext.py      # ConvNeXt transfer learning script (CLI with --resume, --image-size, --batch-size)
     └── evaluate_model.py      # Standalone evaluation CLI for trained models
 ```
 
@@ -44,6 +46,7 @@ src/cifar10/
 | **ViT** | `models/vit.py` | `scripts/train_vit.py` | — | Vision Transformer, MixUp + CutMix, AdamW + Warmup + Cosine |
 | **DeiT** | `models/deit.py` | `scripts/train_deit.py` | — | Convolutional stem, distillation token, stochastic depth, hard distillation from a WRN teacher |
 | **WideResNet** | `models/wideresnet.py` | `scripts/train_wrn.py` | WRN-28-10 | Pre-activation blocks, SGD + Cosine, RandAugment |
+| **ConvNeXt** | `models/convnext.py` | `scripts/train_convnext.py` | ConvNeXt Tiny | ImageNet-pretrained transfer learning, bicubic upscale to 128×128, AdamW + Cosine, TrivialAugmentWide + RandomErasing, label smoothing, MixUp + CutMix, EMA, gradient clipping, staged fine-tuning (10 epochs head-only → full fine-tune) |
 
 ## Setup
 
@@ -81,6 +84,10 @@ python -m cifar10.scripts.train_wrn
 
 # DeiT distillation training (requires pre-trained WRN teacher)
 python -m cifar10.scripts.train_deit
+
+# ConvNeXt transfer learning (uses ImageNet-pretrained Tiny variant)
+python -m cifar10.scripts.train_convnext
+python -m cifar10.scripts.train_convnext --image-size 128 --batch-size 128
 ```
 
 ### Output Layout
@@ -101,7 +108,10 @@ All outputs are written to hidden folders at the project root:
 ├── vgg/
 │   ├── checkpoints/
 │   └── logs/
-└── resnet/
+├── resnet/
+│   ├── checkpoints/
+│   └── logs/
+└── convnext/
     ├── checkpoints/
     └── logs/
 
@@ -139,6 +149,9 @@ python -m cifar10.scripts.train_vgg --resume .runs/vgg/checkpoints/last.pt
 
 # Resume ResNet
 python -m cifar10.scripts.train_resnet --resume .runs/resnet/checkpoints/last.pt
+
+# Resume ConvNeXt
+python -m cifar10.scripts.train_convnext --resume .runs/convnext/checkpoints/last.pt
 ```
 
 Resuming restores:
@@ -170,7 +183,7 @@ Optional arguments:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--model` | (required) | Architecture: `vit`, `wrn`, `deit`, `vgg`, or `resnet` |
+| `--model` | (required) | Architecture: `vit`, `wrn`, `deit`, `vgg`, `resnet`, or `convnext` |
 | `--checkpoint` | (required) | Path to the checkpoint file |
 | `--batch-size` | 128 | Batch size for evaluation |
 | `--data-dir` | `./.data` | CIFAR-10 dataset root |
