@@ -178,13 +178,18 @@ def build_cifar10_imagenet_loaders(
     batch_size: int = 128,
     num_workers: int = 0,
     device: TorchDevice | None = None,
+    validation_ratio: float = 0.2,
     download: bool = True,
-) -> tuple[DataLoader, DataLoader]:
-    """Build train / test DataLoaders for CIFAR10 with ImageNet preprocessing.
+) -> tuple[DataLoader, DataLoader, DataLoader]:
+    """Build train / validation / test DataLoaders for CIFAR10 with ImageNet preprocessing.
 
     Designed for transfer learning with ImageNet-pretrained models (e.g.
     ConvNeXt). Images are upsampled to ``image_size`` using bicubic
     interpolation and normalized with ImageNet stats.
+
+    A validation split is carved from the training set using
+    ``validation_ratio``. The validation split uses non-augmented evaluation
+    transforms (no cropping, no TrivialAugmentWide, no RandomErasing).
 
     Augmentation pipeline (matching TorchVision's ConvNeXt recipe):
         - RandomResizedCrop (bicubic)
@@ -200,10 +205,12 @@ def build_cifar10_imagenet_loaders(
         batch_size: Batch size for all loaders.
         num_workers: Number of DataLoader workers.
         device: If provided, determines ``pin_memory`` (True for CUDA).
+        validation_ratio: Fraction of training data to hold out for validation
+            (default 0.2 = 10k out of 50k).
         download: If True, download the dataset.
 
     Returns:
-        A tuple ``(train_loader, test_loader)``.
+        A tuple ``(train_loader, val_loader, test_loader)``.
     """
     pin_memory = device is not None and device.type == "cuda"
     bicubic = InterpolationMode.BICUBIC
@@ -230,12 +237,27 @@ def build_cifar10_imagenet_loaders(
     ])
 
     # --- Datasets -------------------------------------------------------------
-    train_dataset = datasets.CIFAR10(
+    # Base training set without transforms → deterministic split into
+    # train/val subsets, each with its own transforms applied by
+    # _TransformedSubset. The validation set gets no augmentations.
+    base_train = datasets.CIFAR10(
         root=str(data_dir),
         train=True,
         download=download,
-        transform=train_transform,
+        transform=None,
     )
+
+    val_size = int(validation_ratio * len(base_train))
+    train_size = len(base_train) - val_size
+
+    train_subset, val_subset = random_split(
+        base_train,
+        [train_size, val_size],
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    train_dataset = _TransformedSubset(base_train, train_subset.indices, train_transform)
+    val_dataset = _TransformedSubset(base_train, val_subset.indices, eval_transform)
 
     test_dataset = datasets.CIFAR10(
         root=str(data_dir),
@@ -253,6 +275,14 @@ def build_cifar10_imagenet_loaders(
         pin_memory=pin_memory,
     )
 
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=False,
+    )
+
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -261,4 +291,4 @@ def build_cifar10_imagenet_loaders(
         pin_memory=pin_memory,
     )
 
-    return train_loader, test_loader
+    return train_loader, val_loader, test_loader

@@ -238,7 +238,9 @@ def main():
     print(f"Epochs: {cfg.epochs} (frozen for first {cfg.freeze_backbone_epochs})")
 
     # Build data loaders with ImageNet preprocessing
-    train_loader, test_loader = build_cifar10_imagenet_loaders(
+    # val_loader uses non-augmented transforms for validation during training
+    # test_loader is reserved for final evaluation only
+    train_loader, val_loader, test_loader = build_cifar10_imagenet_loaders(
         data_dir=cfg.data_dir,
         image_size=cfg.image_size,
         batch_size=cfg.batch_size,
@@ -252,9 +254,9 @@ def main():
     print(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
 
     trainer = ConvNextTrainer(model, cfg, device)
-    best_acc = trainer.train(train_loader, test_loader, resume_from=args.resume)
+    best_acc = trainer.train(train_loader, val_loader, resume_from=args.resume)
 
-    # Final evaluation on test set
+    # Final evaluation on held-out test set
     test_loss, test_acc = evaluate(model, test_loader, device)
     print(f"\n{'=' * 60}")
     print(f"TEST ACCURACY: {test_acc:.2f}%")

@@ -221,7 +221,7 @@ def _build_test_loader(model_type: str, config, args, device) -> tuple:
     if model_type in TEST_LOADER_REGISTRY:
         # Use model-specific test loader (e.g. ConvNeXt with ImageNet preprocessing)
         loader_builder = TEST_LOADER_REGISTRY[model_type]
-        _, test_loader = loader_builder(
+        _, _, test_loader = loader_builder(
             data_dir=args.data_dir,
             image_size=config.image_size,
             batch_size=args.batch_size,
