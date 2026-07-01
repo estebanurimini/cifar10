@@ -35,6 +35,11 @@ Usage:
     python -m cifar10.scripts.evaluate_model \\
         --model convnext \\
         --checkpoint .runs/convnext/checkpoints/best.pt
+
+    # EfficientNet-V2 (uses 128x128 ImageNet preprocessing)
+    python -m cifar10.scripts.evaluate_model \\
+        --model efficientnet_v2 \\
+        --checkpoint .runs/efficientnet_v2/checkpoints/best.pt
 """
 
 import argparse
@@ -81,7 +86,8 @@ def _register_defaults():
     from cifar10.scripts.train_vgg import VGGConfig
     from cifar10.scripts.train_resnet import ResNetConfig
     from cifar10.scripts.train_convnext import ConvNextConfig
-    from cifar10.models import ViT, DeiT, WideResNet, VGG, ResNetCIFAR, ConvNeXtCIFAR10
+    from cifar10.scripts.train_efficientnet_v2 import EfficientNetV2Config
+    from cifar10.models import ViT, DeiT, WideResNet, VGG, ResNetCIFAR, ConvNeXtCIFAR10, EfficientNetV2CIFAR10
     from cifar10.data.cifar10 import build_cifar10_imagenet_loaders
 
     MODEL_REGISTRY["vit"] = (ViTConfig, _build_vit)
@@ -90,9 +96,11 @@ def _register_defaults():
     MODEL_REGISTRY["vgg"] = (VGGConfig, _build_vgg)
     MODEL_REGISTRY["resnet"] = (ResNetConfig, _build_resnet)
     MODEL_REGISTRY["convnext"] = (ConvNextConfig, _build_convnext)
+    MODEL_REGISTRY["efficientnet_v2"] = (EfficientNetV2Config, _build_efficientnet_v2)
 
-    # Register custom test loaders
+    # Register custom test loaders (ImageNet preprocessing for 128x128 models)
     TEST_LOADER_REGISTRY["convnext"] = build_cifar10_imagenet_loaders
+    TEST_LOADER_REGISTRY["efficientnet_v2"] = build_cifar10_imagenet_loaders
 
     # Store model classes for checkpoint-based rebuild
     global _MODEL_CLASSES
@@ -103,6 +111,7 @@ def _register_defaults():
         "vgg": VGG,
         "resnet": ResNetCIFAR,
         "convnext": ConvNeXtCIFAR10,
+        "efficientnet_v2": EfficientNetV2CIFAR10,
     }
 
 
@@ -165,6 +174,14 @@ def _build_resnet(config, device):
 def _build_convnext(config, device):
     from cifar10.models import ConvNeXtCIFAR10
     return ConvNeXtCIFAR10(num_classes=10).to(device)
+
+
+def _build_efficientnet_v2(config, device):
+    from cifar10.models import EfficientNetV2CIFAR10
+    return EfficientNetV2CIFAR10(
+        num_classes=10,
+        variant=config.variant,
+    ).to(device)
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +277,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        choices=["vit", "wrn", "deit", "vgg", "resnet", "convnext"],
+        choices=["vit", "wrn", "deit", "vgg", "resnet", "convnext", "efficientnet_v2"],
         required=True,
         help="Model architecture to evaluate.",
     )

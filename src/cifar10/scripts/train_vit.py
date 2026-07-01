@@ -1,5 +1,8 @@
 """Training script for ViT on CIFAR10.
 
+Uses a validation split from the training set (like ResNet/WRN/VGG). Trains with
+MixUp/CutMix augmentation and reports final held-out test accuracy.
+
 Usage:
     python -m cifar10.scripts.train_vit
     python -m cifar10.scripts.train_vit --resume .runs/vit/checkpoints/last.pt
@@ -10,7 +13,7 @@ from pathlib import Path
 
 from cifar10.data import build_cifar10_loaders, build_mixup_cutmix
 from cifar10.models import ViT
-from cifar10.training import StandardTrainer
+from cifar10.training import StandardTrainer, evaluate
 from cifar10.training.trainer import TrainerConfig
 from cifar10.utils import set_seed, get_device
 
@@ -63,11 +66,14 @@ def main():
     device = get_device()
     print(f"Using device: {device}")
 
-    train_loader, test_loader, _ = build_cifar10_loaders(
+    # ViT uses a validation split from training data (like WRN/VGG)
+    train_loader, val_loader, test_loader = build_cifar10_loaders(
         data_dir=cfg.data_dir,
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         device=device,
+        with_validation_split=True,
+        use_randaugment=True,
     )
 
     model = ViT(
@@ -82,7 +88,13 @@ def main():
     ).to(device)
 
     trainer = ViTTrainer(model, cfg, device)
-    trainer.train(train_loader, test_loader, resume_from=args.resume)
+    best_acc = trainer.train(train_loader, val_loader, resume_from=args.resume)
+
+    # Final evaluation on held-out test set
+    test_loss, test_acc = evaluate(model, test_loader, device)
+    print(f"\n{'=' * 60}")
+    print(f"TEST ACCURACY: {test_acc:.2f}%")
+    print(f"{'=' * 60}")
 
 
 if __name__ == "__main__":
