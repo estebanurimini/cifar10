@@ -26,6 +26,9 @@ class WRNConfig(TrainerConfig):
     momentum: float = 0.9
     epochs: int = 200
     optimizer: str = "sgd"
+    augmentation: str = "randaugment"
+    mixup_prob: float = 0.0
+    cutmix_prob: float = 0.0
     run_dir: Path = field(default_factory=lambda: Path("./.runs/own_wrn"))
 
     def _arch_params(self) -> dict[str, Any]:

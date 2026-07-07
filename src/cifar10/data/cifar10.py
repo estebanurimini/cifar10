@@ -1,5 +1,6 @@
 """CIFAR10 dataset transforms and dataloader factory."""
 
+import warnings
 from pathlib import Path
 
 import torch
@@ -51,6 +52,49 @@ class _TransformedSubset(Subset):
         return [self.__getitem__(idx) for idx in indices]
 
 
+def _build_train_transform(augmentation: str) -> transforms.Compose:
+    """Build training transform for CIFAR-10 based on an augmentation preset.
+
+    Args:
+        augmentation: Preset name. One of:
+            - ``"crop_flip"``: RandomCrop + RandomHorizontalFlip only.
+            - ``"randaugment"``: Same + RandAugment.
+            - ``"autoaugment"``: Same + AutoAugment(CIFAR10).
+            - ``"autoaugment_cutout"``: Same + AutoAugment(CIFAR10) + Cutout(16).
+
+    Returns:
+        A ``transforms.Compose`` pipeline.
+    """
+    tfms = [
+        transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
+        transforms.RandomHorizontalFlip(p=0.5),
+    ]
+    if augmentation == "crop_flip":
+        pass
+    elif augmentation == "randaugment":
+        tfms.append(transforms.RandAugment())
+    elif augmentation == "autoaugment":
+        tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
+    elif augmentation == "autoaugment_cutout":
+        tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
+    else:
+        raise ValueError(
+            f"Unknown augmentation preset: {augmentation!r}. "
+            f"Valid options: crop_flip, randaugment, autoaugment, autoaugment_cutout"
+        )
+
+    tfms.extend([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR10_NORM["mean"], CIFAR10_NORM["std"]),
+    ])
+
+    # Cutout is applied after ToTensor + Normalize (operates on Tensor in [0,1])
+    if augmentation == "autoaugment_cutout":
+        tfms.append(Cutout(hole_size=16))
+
+    return transforms.Compose(tfms)
+
+
 def build_cifar10_loaders(
     data_dir: str | Path,
     batch_size: int = 128,
@@ -58,7 +102,8 @@ def build_cifar10_loaders(
     device: TorchDevice | None = None,
     with_validation_split: bool = False,
     validation_pct: float = 0.1,
-    use_randaugment: bool = False,
+    use_randaugment: bool | None = None,
+    augmentation: str = "randaugment",
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
     """Build train / validation / test DataLoaders for CIFAR10.
@@ -71,7 +116,10 @@ def build_cifar10_loaders(
         with_validation_split: If True, split a validation set from the 50k
             training samples.
         validation_pct: Fraction of training data to use for validation.
-        use_randaugment: If True, apply RandAugment to training transforms.
+        use_randaugment: **Deprecated.** Use ``augmentation`` instead.
+        augmentation: Augmentation preset for training transforms.
+            One of ``"crop_flip"``, ``"randaugment"``, ``"autoaugment"``,
+            ``"autoaugment_cutout"``.
         download: If True, download the dataset.
 
     Returns:
@@ -80,29 +128,27 @@ def build_cifar10_loaders(
         loader and ``test_loader`` will be ``None``.
 
     """
+    # Handle deprecated use_randaugment parameter
+    if use_randaugment is not None:
+        warnings.warn(
+            "`use_randaugment` is deprecated. Use `augmentation` instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        if use_randaugment:
+            augmentation = "randaugment"
+        else:
+            augmentation = "crop_flip"
+
     pin_memory = device is not None and device.type == "cuda"
 
     # --- Transforms -----------------------------------------------------------
-    # When use_randaugment is True, use the full CIFAR-10 recipe:
-    #   AutoAugment(CIFAR10) + Cutout(hole_size=16) + MixUp/CutMix at batch level
-    train_tfms = [
-        transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
-        transforms.RandomHorizontalFlip(p=0.5),
-    ]
-    if use_randaugment:
-        train_tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
-    train_tfms.extend([
-        transforms.ToTensor(),
-        transforms.Normalize(CIFAR10_NORM["mean"], CIFAR10_NORM["std"]),
-        Cutout(hole_size=16),
-    ])
+    train_transform = _build_train_transform(augmentation)
 
     eval_tfms = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(CIFAR10_NORM["mean"], CIFAR10_NORM["std"]),
     ])
-
-    train_transform = transforms.Compose(train_tfms)
 
     # --- Datasets -------------------------------------------------------------
     test_dataset = datasets.CIFAR10(

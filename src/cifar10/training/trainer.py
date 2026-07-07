@@ -43,6 +43,11 @@ class TrainerConfig(BaseConfig):
     momentum: float = 0.9
     run_dir: Path = field(default_factory=lambda: Path("./.runs"))
 
+    # augmentation
+    augmentation: str = "randaugment"  # per-image augmentation preset
+    mixup_prob: float = 0.0            # MixUp probability (0.0 = disabled)
+    cutmix_prob: float = 0.0           # CutMix probability (0.0 = disabled)
+
     # optimizer type
     optimizer: str = "adamw"  # "adamw" or "sgd"
 

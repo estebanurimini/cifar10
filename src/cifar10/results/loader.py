@@ -19,6 +19,7 @@ TRAINING_PARAMS = {
     "optimizer", "lr", "weight_decay", "momentum", "label_smoothing",
     "epochs", "warmup_epochs", "min_lr",
     "use_randaugment", "use_trivialaugmentwide",
+    "augmentation", "mixup_prob", "cutmix_prob",
     "mixup_alpha", "cutmix_alpha",
     "ema_decay", "dropout", "stochastic_depth",
     "freeze_backbone_epochs", "backbone_lr_scale",

@@ -102,6 +102,25 @@ def main():
         default=None,
         help="Number of epochs.",
     )
+    parser.add_argument(
+        "--augmentation",
+        type=str,
+        default=None,
+        choices=["crop_flip", "randaugment", "autoaugment", "autoaugment_cutout"],
+        help="Per-image augmentation preset (overrides config default).",
+    )
+    parser.add_argument(
+        "--mixup-prob",
+        type=float,
+        default=None,
+        help="MixUp probability (0.0 = disabled).",
+    )
+    parser.add_argument(
+        "--cutmix-prob",
+        type=float,
+        default=None,
+        help="CutMix probability (0.0 = disabled).",
+    )
     args = parser.parse_args()
 
     # List models and exit
@@ -144,6 +163,12 @@ def main():
         overrides["lr"] = args.lr
     if args.epochs is not None:
         overrides["epochs"] = args.epochs
+    if args.augmentation is not None:
+        overrides["augmentation"] = args.augmentation
+    if args.mixup_prob is not None:
+        overrides["mixup_prob"] = args.mixup_prob
+    if args.cutmix_prob is not None:
+        overrides["cutmix_prob"] = args.cutmix_prob
 
     cfg = cfg_cls(**overrides)
     set_seed(cfg.seed)
