@@ -1,38 +1,68 @@
-from .blocks import (
-    PatchEmbedding,
-    MLP,
-    Attention,
-    TransformerBlock,
-    drop_path,
+"""
+Model source separation.
+
+``models/`` is organized by source:
+
+- ``models.own`` — Custom implementations trained from scratch (no external weights)
+- ``models.tv`` — TorchVision wrappers with pretrained weights
+- ``models.timm`` — TIMM wrappers with pretrained weights
+"""
+
+# ---------------------------------------------------------------------------
+# Own models (from scratch, no pretrained weights)
+# ---------------------------------------------------------------------------
+from cifar10.models.own import (
+    OwnVGG,
+    OwnWRN, WRNBasicBlock, NetworkBlock,
+    OwnResNet, ResNetBasicBlock,
+    OwnViT, ViTConfig, ViTTrainer,
+    OwnDeiT, ConvStemPatchEmbedding, DeiTConfig, DistillationTrainer,
+    OwnEfficientNetV2, MBConv, SqueezeExcitation, FusedMBConv, EfficientNetConfig, EfficientNetTrainer,
+    PatchEmbedding, MLP, Attention, TransformerBlock, drop_path,
+    WRNConfig, WRNTrainer,
+    VGGConfig, VGGTrainer,
+    ResNetConfig, ResNetTrainer,
 )
-from .vit import ViT
-from .deit import DeiT, ConvStemPatchEmbedding
-from .efficientnet import EfficientNetV2CIFAR, MBConv, SqueezeExcitation, FusedMBConv
-from .wideresnet import WideResNet, BasicBlock, NetworkBlock
-from .vgg import VGG
-from .resnet_cifar import ResNetCIFAR, BasicBlock as ResNetBasicBlock
-from .convnext import ConvNeXtCIFAR10
-from .efficientnet_v2 import EfficientNetV2CIFAR10
+
+# ---------------------------------------------------------------------------
+# TV models (torchvision pretrained)
+# ---------------------------------------------------------------------------
+from cifar10.models.tv import (
+    TVConvNeXt, ConvNextConfig, ConvNextTrainer,
+    TVEfficientNetV2, EfficientNetV2Config, EfficientNetV2Trainer,
+)
+
+# ---------------------------------------------------------------------------
+# TIMM models (timm pretrained, optional dependency)
+# ---------------------------------------------------------------------------
+try:
+    from cifar10.models.timm.resnet import TimmResNet
+except ImportError:
+    class TimmResNet:  # type: ignore
+        """Placeholder: install ``timm`` to use this model."""
+        def __init__(self, *args, **kwargs):
+            raise ImportError("timm is not installed. Run: pip install timm")
 
 __all__ = [
-    "ViT",
-    "DeiT",
-    "VGG",
-    "ResNetCIFAR",
-    "ResNetBasicBlock",
-    "ConvStemPatchEmbedding",
-    "EfficientNetV2CIFAR",
-    "MBConv",
-    "SqueezeExcitation",
-    "FusedMBConv",
-    "WideResNet",
-    "BasicBlock",
-    "NetworkBlock",
-    "ConvNeXtCIFAR10",
-    "EfficientNetV2CIFAR10",
-    "PatchEmbedding",
-    "MLP",
-    "Attention",
-    "TransformerBlock",
-    "drop_path",
+    # Own models
+    "OwnVGG", "OwnWRN", "OwnResNet", "OwnViT", "OwnDeiT", "OwnEfficientNetV2",
+    # Own blocks
+    "MBConv", "SqueezeExcitation", "FusedMBConv",
+    "ConvStemPatchEmbedding", "WRNBasicBlock", "NetworkBlock",
+    "ResNetBasicBlock", "PatchEmbedding", "MLP", "Attention",
+    "TransformerBlock", "drop_path",
+    # Own configs & trainers
+    "ViTConfig", "ViTTrainer",
+    "DeiTConfig", "DistillationTrainer",
+    "ResNetConfig", "ResNetTrainer",
+    "WRNConfig", "WRNTrainer",
+    "VGGConfig", "VGGTrainer",
+    "EfficientNetConfig", "EfficientNetTrainer",
+    # TV models
+    "TVConvNeXt", "TVEfficientNetV2",
+    # TV configs & trainers
+    "ConvNextConfig", "ConvNextTrainer",
+    "EfficientNetV2Config", "EfficientNetV2Trainer",
+    # TIMM models
+    "TimmResNet",
 ]

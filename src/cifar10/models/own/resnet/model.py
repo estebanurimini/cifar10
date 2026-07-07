@@ -1,4 +1,4 @@
-"""ResNet models for CIFAR10.
+"""OwnResNet — CIFAR10-specific ResNet variants (own implementation, no pretrained weights).
 
 Implements the CIFAR10-specific ResNet variants from the original paper
 (Deep Residual Learning, He et al. 2016). These differ from ImageNet
@@ -80,8 +80,8 @@ RESNET_CIFAR_VARIANTS = {
 }
 
 
-class ResNetCIFAR(nn.Module):
-    """ResNet for CIFAR10.
+class OwnResNet(nn.Module):
+    """ResNet for CIFAR10 (own implementation, no pretrained weights).
 
     Adapted for small images (32×32):
         - 3×3 conv stride 1 instead of 7×7 conv stride 2.

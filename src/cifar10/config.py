@@ -27,6 +27,14 @@ class BaseConfig:
     # EMA
     ema_decay: float = 0.999
 
+    # model metadata — filled in by subclasses
+    source: str = "own"          # "own", "tv", "timm"
+    architecture: str = ""       # e.g. "vgg", "wrn", "convnext"
+    pretrained: bool = False
+    pretrained_source: str | None = None  # e.g. "imagenet1k"
+    input_size: int = 32
+    data_norm: str = "cifar10"
+
     # paths — subclasses override run_dir to add model name
     data_dir: Path = field(default_factory=lambda: Path("./.data"))
     run_dir: Path = field(default_factory=lambda: Path("./.runs"))

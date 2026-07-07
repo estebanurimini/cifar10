@@ -1,4 +1,4 @@
-"""ViT (Vision Transformer) model for CIFAR10.
+"""OwnViT — Vision Transformer for CIFAR10 (own implementation, no pretrained weights).
 
 Architecture only — no training code. Import and use with the training framework.
 """
@@ -6,10 +6,10 @@ Architecture only — no training code. Import and use with the training framewo
 import torch
 import torch.nn as nn
 
-from cifar10.models.blocks import PatchEmbedding, TransformerBlock
+from cifar10.models.own.blocks import PatchEmbedding, TransformerBlock
 
 
-class ViT(nn.Module):
+class OwnViT(nn.Module):
     """Vision Transformer for small image classification."""
 
     def __init__(

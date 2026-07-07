@@ -1,4 +1,4 @@
-"""VGG models for CIFAR10.
+"""OwnVGG — CIFAR10-adapted VGG implementation (no pretrained weights).
 
 CIFAR10 adaptation: the first two max-pool layers are removed because
 32×32 images are already very small. This preserves spatial resolution
@@ -17,36 +17,6 @@ from typing import Literal
 # Standard VGG pools 5 times (32→16→8→4→2→1).
 # CIFAR VGG pools 3 times  (32→16→8→4) for better small-image accuracy.
 # ---------------------------------------------------------------------------
-
-VGG_CONFIGS = {
-    "vgg11_bn": {
-        "conv_cfg": [64, "M", 128, "M", 256, 256, "M", 512, 512, "M", 512, 512],
-        "classifier": None,  # auto-built
-    },
-    "vgg16_bn": {
-        "conv_cfg": [
-            64, 64, "M",
-            128, 128, "M",
-            256, 256, 256, "M",
-            512, 512, 512,
-            512, 512, 512,
-        ],
-        "classifier": None,
-    },
-}
-
-# CIFAR10-adapted max-pool removal:
-# Standard VGG maps:   64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'
-#                                       ^ first  'M' at 32×32
-#                                             ^ second 'M' at 16×16
-# For CIFAR10 we keep only the last 3 'M's (starting from when feature map is 16×16
-# after the first two conv groups that don't pool).
-
-# Actually, looking at the standard VGG configs more carefully:
-# Standard VGG16: [64,64,M, 128,128,M, 256,256,256,M, 512,512,512,M, 512,512,512,M]
-# For CIFAR10: Remove first 2 'M', keep last 3 'M' → spatial: 32→16→8→4
-# VGG11 (CIFAR): [64, 128, M, 256, 256, M, 512, 512, M, 512, 512]
-# VGG16 (CIFAR): [64,64, 128,128, M, 256,256,256, M, 512,512,512, M, 512,512,512]
 
 VGG_CIFAR_CONFIGS = {
     "vgg11_bn": {
@@ -101,8 +71,8 @@ def _make_vgg_layers(cfg: list, batch_norm: bool = True) -> nn.Sequential:
     return nn.Sequential(*layers)
 
 
-class VGG(nn.Module):
-    """VGG for CIFAR10.
+class OwnVGG(nn.Module):
+    """VGG for CIFAR10 (own implementation, no pretrained weights).
 
     Adapted for small images (32×32):
         - Removes first 2 max-pool layers (standard VGG pools 5× → pools 3×).

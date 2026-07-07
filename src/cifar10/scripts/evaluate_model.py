@@ -1,55 +1,64 @@
 """Evaluate a trained model on the CIFAR-10 test set.
 
 Loads a checkpoint, reconstructs the model architecture (using either embedded
-config from the checkpoint or default configs from the training modules), and
+config from the checkpoint or default configs from the model packages), and
 prints detailed evaluation metrics including per-class accuracy and inference
 throughput.
 
 Usage:
     # Evaluate with embedded config (new checkpoints)
     python -m cifar10.scripts.evaluate_model \\
-        --model vit \\
-        --checkpoint .runs/vit/checkpoints/best.pt
+        --model own_vit \\
+        --checkpoint .runs/own_vit/checkpoints/best.pt
 
     # Evaluate a legacy checkpoint (no embedded config)
     python -m cifar10.scripts.evaluate_model \\
-        --model wrn \\
-        --checkpoint .runs/wrn/checkpoints/best.pt
+        --model own_wrn \\
+        --checkpoint .runs/own_wrn/checkpoints/best.pt
 
     # New models
     python -m cifar10.scripts.evaluate_model \\
-        --model vgg \\
-        --checkpoint .runs/vgg/checkpoints/best.pt
+        --model own_vgg \\
+        --checkpoint .runs/own_vgg/checkpoints/best.pt
 
     python -m cifar10.scripts.evaluate_model \\
-        --model resnet \\
-        --checkpoint .runs/resnet/checkpoints/best.pt
+        --model own_resnet \\
+        --checkpoint .runs/own_resnet/checkpoints/best.pt
 
     # With custom batch size
     python -m cifar10.scripts.evaluate_model \\
-        --model deit \\
-        --checkpoint .runs/deit/checkpoints/best.pt \\
+        --model own_deit \\
+        --checkpoint .runs/own_deit/checkpoints/best.pt \\
         --batch-size 256
 
     # ConvNeXt (uses 128x128 ImageNet preprocessing)
     python -m cifar10.scripts.evaluate_model \\
-        --model convnext \\
-        --checkpoint .runs/convnext/checkpoints/best.pt
+        --model tv_convnext \\
+        --checkpoint .runs/tv_convnext/checkpoints/best.pt
 
     # EfficientNet-V2 (uses 128x128 ImageNet preprocessing)
     python -m cifar10.scripts.evaluate_model \\
-        --model efficientnet_v2 \\
-        --checkpoint .runs/efficientnet_v2/checkpoints/best.pt
+        --model tv_efficientnetv2 \\
+        --checkpoint .runs/tv_efficientnetv2/checkpoints/best.pt
 """
 
 import argparse
 import dataclasses
 from pathlib import Path
+from typing import Callable
 
 import torch
 
 from cifar10.data.cifar10 import CIFAR10_NORM
 from cifar10.training import evaluate, detailed_evaluate, format_evaluation_results
+from cifar10.models.own.vit import ViTConfig
+from cifar10.models.own.wrn import WRNConfig
+from cifar10.models.own.vgg import VGGConfig
+from cifar10.models.own.resnet import ResNetConfig
+from cifar10.models.own.deit import DeiTConfig
+from cifar10.models.tv.convnext import ConvNextConfig
+from cifar10.models.tv.efficientnet_v2 import EfficientNetV2Config
+from cifar10.data.cifar10 import build_cifar10_imagenet_loaders
 
 # CIFAR-10 class names (in order of the dataset's class indices)
 CIFAR10_CLASSES = [
@@ -67,57 +76,49 @@ CIFAR10_CLASSES = [
 
 # ---------------------------------------------------------------------------
 # Default configs for each model type — used when checkpoint has no embedded
-# config (legacy checkpoints). These must be imported lazily to avoid circular
-# imports and to keep the script lightweight if only one model is needed.
+# config (legacy checkpoints).
 # ---------------------------------------------------------------------------
 
 MODEL_REGISTRY: dict[str, tuple] = {}
-
-# Registry for models that need a custom test loader (e.g. ImageNet-based
-# preprocessing). Maps model type -> loader builder function.
-TEST_LOADER_REGISTRY: dict[str, callable] = {}
+TEST_LOADER_REGISTRY: dict[str, Callable] = {}
+_MODEL_CLASSES: dict[str, type] = {}
 
 
 def _register_defaults():
     """Lazy-import and register default config & model builders."""
-    from cifar10.scripts.train_vit import ViTConfig
-    from cifar10.scripts.train_wrn import WRNConfig
-    from cifar10.scripts.train_deit import DeiTConfig
-    from cifar10.scripts.train_vgg import VGGConfig
-    from cifar10.scripts.train_resnet import ResNetConfig
-    from cifar10.scripts.train_convnext import ConvNextConfig
-    from cifar10.scripts.train_efficientnet_v2 import EfficientNetV2Config
-    from cifar10.models import ViT, DeiT, WideResNet, VGG, ResNetCIFAR, ConvNeXtCIFAR10, EfficientNetV2CIFAR10
-    from cifar10.data.cifar10 import build_cifar10_imagenet_loaders
+    from cifar10.models import (
+        OwnViT, OwnDeiT, OwnWRN, OwnVGG, OwnResNet,
+        TVConvNeXt, TVEfficientNetV2,
+    )
 
-    MODEL_REGISTRY["vit"] = (ViTConfig, _build_vit)
-    MODEL_REGISTRY["wrn"] = (WRNConfig, _build_wrn)
-    MODEL_REGISTRY["deit"] = (DeiTConfig, _build_deit)
-    MODEL_REGISTRY["vgg"] = (VGGConfig, _build_vgg)
-    MODEL_REGISTRY["resnet"] = (ResNetConfig, _build_resnet)
-    MODEL_REGISTRY["convnext"] = (ConvNextConfig, _build_convnext)
-    MODEL_REGISTRY["efficientnet_v2"] = (EfficientNetV2Config, _build_efficientnet_v2)
+    MODEL_REGISTRY["own_vit"] = (ViTConfig, _build_own_vit)
+    MODEL_REGISTRY["own_wrn"] = (WRNConfig, _build_own_wrn)
+    MODEL_REGISTRY["own_deit"] = (DeiTConfig, _build_own_deit)
+    MODEL_REGISTRY["own_vgg"] = (VGGConfig, _build_own_vgg)
+    MODEL_REGISTRY["own_resnet"] = (ResNetConfig, _build_own_resnet)
+    MODEL_REGISTRY["tv_convnext"] = (ConvNextConfig, _build_tv_convnext)
+    MODEL_REGISTRY["tv_efficientnetv2"] = (EfficientNetV2Config, _build_tv_efficientnetv2)
 
     # Register custom test loaders (ImageNet preprocessing for 128x128 models)
-    TEST_LOADER_REGISTRY["convnext"] = build_cifar10_imagenet_loaders
-    TEST_LOADER_REGISTRY["efficientnet_v2"] = build_cifar10_imagenet_loaders
+    TEST_LOADER_REGISTRY["tv_convnext"] = build_cifar10_imagenet_loaders
+    TEST_LOADER_REGISTRY["tv_efficientnetv2"] = build_cifar10_imagenet_loaders
 
     # Store model classes for checkpoint-based rebuild
     global _MODEL_CLASSES
     _MODEL_CLASSES = {
-        "vit": ViT,
-        "wrn": WideResNet,
-        "deit": DeiT,
-        "vgg": VGG,
-        "resnet": ResNetCIFAR,
-        "convnext": ConvNeXtCIFAR10,
-        "efficientnet_v2": EfficientNetV2CIFAR10,
+        "own_vit": OwnViT,
+        "own_wrn": OwnWRN,
+        "own_deit": OwnDeiT,
+        "own_vgg": OwnVGG,
+        "own_resnet": OwnResNet,
+        "tv_convnext": TVConvNeXt,
+        "tv_efficientnetv2": TVEfficientNetV2,
     }
 
 
-def _build_vit(config, device):
-    from cifar10.models import ViT
-    return ViT(
+def _build_own_vit(config, device):
+    from cifar10.models import OwnViT
+    return OwnViT(
         image_size=config.image_size,
         patch_size=config.patch_size,
         num_classes=10,
@@ -129,9 +130,9 @@ def _build_vit(config, device):
     ).to(device)
 
 
-def _build_wrn(config, device):
-    from cifar10.models import WideResNet
-    return WideResNet(
+def _build_own_wrn(config, device):
+    from cifar10.models import OwnWRN
+    return OwnWRN(
         depth=config.depth,
         widen_factor=config.widen_factor,
         dropout_rate=config.wrn_dropout,
@@ -139,9 +140,9 @@ def _build_wrn(config, device):
     ).to(device)
 
 
-def _build_deit(config, device):
-    from cifar10.models import DeiT
-    return DeiT(
+def _build_own_deit(config, device):
+    from cifar10.models import OwnDeiT
+    return OwnDeiT(
         image_size=config.image_size,
         patch_size=config.patch_size,
         num_classes=10,
@@ -154,31 +155,31 @@ def _build_deit(config, device):
     ).to(device)
 
 
-def _build_vgg(config, device):
-    from cifar10.models import VGG
-    return VGG(
+def _build_own_vgg(config, device):
+    from cifar10.models import OwnVGG
+    return OwnVGG(
         variant=config.variant,
         num_classes=10,
         dropout=config.vgg_dropout,
     ).to(device)
 
 
-def _build_resnet(config, device):
-    from cifar10.models import ResNetCIFAR
-    return ResNetCIFAR(
+def _build_own_resnet(config, device):
+    from cifar10.models import OwnResNet
+    return OwnResNet(
         variant=config.variant,
         num_classes=10,
     ).to(device)
 
 
-def _build_convnext(config, device):
-    from cifar10.models import ConvNeXtCIFAR10
-    return ConvNeXtCIFAR10(num_classes=10).to(device)
+def _build_tv_convnext(config, device):
+    from cifar10.models import TVConvNeXt
+    return TVConvNeXt(num_classes=10).to(device)
 
 
-def _build_efficientnet_v2(config, device):
-    from cifar10.models import EfficientNetV2CIFAR10
-    return EfficientNetV2CIFAR10(
+def _build_tv_efficientnetv2(config, device):
+    from cifar10.models import TVEfficientNetV2
+    return TVEfficientNetV2(
         num_classes=10,
         variant=config.variant,
     ).to(device)
@@ -193,8 +194,7 @@ def reconstruct_config(config_dict: dict, model_type: str):
 
     Args:
         config_dict: The ``"config"`` dict stored in the checkpoint.
-        model_type: One of ``"vit"``, ``"wrn"``, ``"deit"``, ``"vgg"``,
-            ``"resnet"``, ``"convnext"``.
+        model_type: One of the registered model type keys.
 
     Returns:
         A config dataclass instance with fields populated from the dict.
@@ -277,7 +277,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--model",
-        choices=["vit", "wrn", "deit", "vgg", "resnet", "convnext", "efficientnet_v2"],
+        choices=[
+            "own_vit", "own_wrn", "own_deit", "own_vgg", "own_resnet",
+            "tv_convnext", "tv_efficientnetv2",
+        ],
         required=True,
         help="Model architecture to evaluate.",
     )
@@ -285,7 +288,7 @@ def parse_args() -> argparse.Namespace:
         "--checkpoint",
         type=Path,
         required=True,
-        help="Path to the checkpoint file (e.g., .runs/vit/checkpoints/best.pt).",
+        help="Path to the checkpoint file (e.g., .runs/own_vit/checkpoints/best.pt).",
     )
     parser.add_argument(
         "--batch-size",

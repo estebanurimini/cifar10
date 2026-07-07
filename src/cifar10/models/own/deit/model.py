@@ -1,4 +1,4 @@
-"""DeiT (Data-efficient Image Transformers) model for CIFAR10.
+"""OwnDeiT — Data-efficient Image Transformers for CIFAR10 (own implementation).
 
 Architecture only — no training code. Import and use with the training
 framework's DistillationTrainer.
@@ -7,7 +7,7 @@ framework's DistillationTrainer.
 import torch
 import torch.nn as nn
 
-from cifar10.models.blocks import TransformerBlock
+from cifar10.models.own.blocks import TransformerBlock
 
 
 class ConvStemPatchEmbedding(nn.Module):
@@ -44,7 +44,7 @@ class ConvStemPatchEmbedding(nn.Module):
         return x
 
 
-class DeiT(nn.Module):
+class OwnDeiT(nn.Module):
     """DeiT (Data-efficient Image Transformer) for small images.
 
     Uses a convolutional stem, distillation token, and stochastic depth.

@@ -1,4 +1,4 @@
-"""Shared transformer blocks used by both ViT and DeiT."""
+"""Shared transformer blocks used by both OwnViT and OwnDeiT."""
 
 import torch
 import torch.nn as nn

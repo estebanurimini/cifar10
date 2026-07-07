@@ -1,4 +1,4 @@
-"""ConvNeXt Tiny wrapper with torchvision pretrained weights.
+"""TVConvNeXt — ConvNeXt Tiny wrapper with torchvision pretrained weights.
 
 Uses ``torchvision.models.convnext_tiny(weights='DEFAULT')`` and replaces the
 classifier head for CIFAR10 (10 classes). Designed for transfer learning with
@@ -30,8 +30,8 @@ def _find_norm_parameter_names(model: nn.Module) -> set[str]:
     return norm_names
 
 
-class ConvNeXtCIFAR10(nn.Module):
-    """ConvNeXt Tiny with a CIFAR10 classification head.
+class TVConvNeXt(nn.Module):
+    """ConvNeXt Tiny with a CIFAR10 classification head (torchvision pretrained).
 
     Args:
         num_classes: Number of output classes (default 10).

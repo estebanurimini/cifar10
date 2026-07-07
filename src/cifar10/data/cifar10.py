@@ -6,7 +6,9 @@ import torch
 from torch import device as TorchDevice
 from torch.utils.data import DataLoader, Subset, random_split
 from torchvision import datasets, transforms
-from torchvision.transforms import InterpolationMode
+from torchvision.transforms import InterpolationMode, AutoAugmentPolicy
+
+from cifar10.data.augmentations import Cutout
 
 # CIFAR10 normalization constants (computed from the training set)
 CIFAR10_NORM = {
@@ -81,15 +83,18 @@ def build_cifar10_loaders(
     pin_memory = device is not None and device.type == "cuda"
 
     # --- Transforms -----------------------------------------------------------
+    # When use_randaugment is True, use the full CIFAR-10 recipe:
+    #   AutoAugment(CIFAR10) + Cutout(hole_size=16) + MixUp/CutMix at batch level
     train_tfms = [
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
+        transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
+        transforms.RandomHorizontalFlip(p=0.5),
     ]
     if use_randaugment:
-        train_tfms.append(transforms.RandAugment(num_ops=2, magnitude=9))
+        train_tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
     train_tfms.extend([
         transforms.ToTensor(),
         transforms.Normalize(CIFAR10_NORM["mean"], CIFAR10_NORM["std"]),
+        Cutout(hole_size=16),
     ])
 
     eval_tfms = transforms.Compose([

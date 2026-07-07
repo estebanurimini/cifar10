@@ -1,4 +1,4 @@
-"""EfficientNet-V2 wrapper with torchvision pretrained weights.
+"""TVEfficientNetV2 — EfficientNet-V2 wrapper with torchvision pretrained weights.
 
 Uses ``torchvision.models.efficientnet_v2_s(weights='DEFAULT')`` and replaces
 the classifier head for CIFAR10 (10 classes). Designed for transfer learning
@@ -46,8 +46,8 @@ def _find_norm_parameter_names(model: nn.Module) -> set[str]:
     return norm_names
 
 
-class EfficientNetV2CIFAR10(nn.Module):
-    """EfficientNet-V2 with a CIFAR10 classification head.
+class TVEfficientNetV2(nn.Module):
+    """EfficientNet-V2 with a CIFAR10 classification head (torchvision pretrained).
 
     Args:
         num_classes: Number of output classes (default 10).
@@ -153,9 +153,7 @@ class EfficientNetV2CIFAR10(nn.Module):
         """Return param groups for the backbone only (excludes classifier head).
 
         Used when unfreezing the backbone mid-training to add new groups
-        to the existing optimizer without rebuilding it. The model's own
-        knowledge of which parameters are norms and which belong to the
-        classifier keeps this logic self-contained.
+        to the existing optimizer without rebuilding it.
 
         Args:
             lr: Base learning rate (head LR). Backbone LR is ``lr * scale``.

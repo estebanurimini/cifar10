@@ -5,8 +5,10 @@ from __future__ import annotations
 import copy
 import csv
 import dataclasses
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +37,89 @@ class TrainerConfig(BaseConfig):
     warmup_epochs: int = 5
     mixup_alpha: float = 0.2
     cutmix_alpha: float = 1.0
+    use_randaugment: bool = True
+    dropout: float = 0.0
+    stochastic_depth: float = 0.0
+    momentum: float = 0.9
     run_dir: Path = field(default_factory=lambda: Path("./.runs"))
+
+    # optimizer type
+    optimizer: str = "adamw"  # "adamw" or "sgd"
+
+    # gradient clipping (0.0 = disabled)
+    clip_grad_norm: float = 0.0
+
+    # staged fine-tuning
+    freeze_backbone_epochs: int = 0
+    backbone_lr_scale: float = 1.0
+    norm_weight_decay: float = 0.0  # no WD on norm layers by default
+
+    # ------------------------------------------------------------------
+    # Serialization helpers for resolve_run_dir()
+    # ------------------------------------------------------------------
+
+    def to_run_params(self) -> dict[str, Any]:
+        """Convert config to a dict suitable for :func:`resolve_run_dir`.
+
+        Subclasses can override :meth:`_arch_params` and/or
+        :meth:`_teacher_params` to add model-specific keys.
+        """
+        return {
+            "source": self.source,
+            "architecture": self.architecture,
+            "pretrained": self.pretrained,
+            "pretrained_source": self.pretrained_source,
+            "input_size": self.input_size,
+            "data_norm": self.data_norm,
+            "optimizer": self.optimizer,
+            "lr": self.lr,
+            "weight_decay": self.weight_decay,
+            "momentum": self.momentum,
+            "label_smoothing": self.label_smoothing,
+            "epochs": self.epochs,
+            "warmup_epochs": self.warmup_epochs,
+            "min_lr": self.min_lr,
+            "use_randaugment": self.use_randaugment,
+            "mixup_alpha": self.mixup_alpha,
+            "cutmix_alpha": self.cutmix_alpha,
+            "ema_decay": self.ema_decay,
+            "dropout": self.dropout,
+            "stochastic_depth": self.stochastic_depth,
+            "freeze_backbone_epochs": self.freeze_backbone_epochs,
+            "backbone_lr_scale": self.backbone_lr_scale,
+            "batch_size": self.batch_size,
+            "seed": self.seed,
+            "arch_params": self._arch_params(),
+            "teacher": self._teacher_params(),
+        }
+
+    def _arch_params(self) -> dict[str, Any]:
+        """Override in subclasses to add model-specific architecture params."""
+        return {}
+
+    def _teacher_params(self) -> dict[str, Any] | None:
+        """Override in subclasses (e.g. DeiT) to record teacher info."""
+        return None
+
+
+def _config_to_params_dict(config: TrainerConfig) -> dict[str, Any]:
+    """Convert a TrainerConfig (or subclass) to a serializable dict.
+
+    Converts Path objects to strings and adds metadata fields.
+    """
+    d = dataclasses.asdict(config)
+
+    # Convert Path objects to strings
+    for k, v in d.items():
+        if isinstance(v, Path):
+            d[k] = str(v)
+
+    # Add metadata
+    now = datetime.now()
+    d["created_at"] = now.isoformat(timespec="seconds")
+    d["notes"] = ""
+
+    return d
 
 
 class BaseTrainer(ABC):
@@ -71,7 +155,36 @@ class BaseTrainer(ABC):
         self.last_ckpt = self.checkpoint_dir / "last.pt"
         self.csv_log = self.log_dir / "metrics.csv"
 
+        # Write params.json (on first start, not on resume)
+        self._write_params_json()
+
+    def _write_params_json(self) -> None:
+        """Write ``params.json`` to the run directory if it doesn't exist.
+
+        If the file already exists (e.g., from a previous run or migration),
+        it is left untouched to preserve the original configuration.
+        """
+        params_path = self.config.run_dir / "params.json"
+        if params_path.exists():
+            return
+
+        params = _config_to_params_dict(self.config)
+        params_path.write_text(json.dumps(params, indent=4, default=str))
+        print(f"[params] Written: {params_path}")
+
     def _build_optimizer(self) -> torch.optim.Optimizer:
+        """Build optimizer based on ``self.config.optimizer``.
+
+        Subclasses that need custom param groups (e.g. separate backbone/head
+        LRs, no weight decay on norm layers) should override this method.
+        """
+        if self.config.optimizer == "sgd":
+            return torch.optim.SGD(
+                self.model.parameters(),
+                lr=self.config.lr,
+                momentum=self.config.momentum,
+                weight_decay=self.config.weight_decay,
+            )
         return torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.lr,
@@ -135,6 +248,7 @@ class BaseTrainer(ABC):
                 ])
 
             for epoch in range(start_epoch, self.config.epochs + 1):
+                self._on_epoch_start(epoch)
                 train_loss = self._train_epoch(train_loader, epoch)
                 self.scheduler.step()
 
@@ -172,6 +286,14 @@ class BaseTrainer(ABC):
     # Hook / helper methods (can be overridden by subclasses)
     # ------------------------------------------------------------------
 
+    def _on_epoch_start(self, epoch: int) -> None:
+        """Called at the start of each epoch (before training).
+
+        Override in subclasses that need staged unfreezing, backbone LR
+        adjustment, or other per-epoch setup.
+        """
+        pass
+
     def _augment_batch(
         self,
         images: torch.Tensor,
@@ -189,6 +311,8 @@ class BaseTrainer(ABC):
         epoch: int,
     ) -> float:
         """Train for one epoch.
+
+        Supports gradient clipping (if ``config.clip_grad_norm > 0``).
 
         Args:
             train_loader: Training data.
@@ -221,6 +345,15 @@ class BaseTrainer(ABC):
                 loss = self._compute_loss(images, labels)
 
             self.scaler.scale(loss).backward()
+
+            # Gradient clipping (unscale before clipping)
+            if self.config.clip_grad_norm > 0:
+                self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(),
+                    self.config.clip_grad_norm,
+                )
+
             self.scaler.step(self.optimizer)
             self.scaler.update()
 

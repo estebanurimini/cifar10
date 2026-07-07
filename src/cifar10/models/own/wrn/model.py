@@ -1,4 +1,4 @@
-"""WideResNet model for CIFAR10.
+"""OwnWRN — WideResNet for CIFAR10 (own implementation, no pretrained weights).
 
 Architecture only — no training code. Import and use with the training framework.
 """
@@ -78,8 +78,8 @@ class NetworkBlock(nn.Module):
         return self.block(x)
 
 
-class WideResNet(nn.Module):
-    """Wide Residual Network for CIFAR10.
+class OwnWRN(nn.Module):
+    """Wide Residual Network for CIFAR10 (own implementation).
 
     Args:
         depth: Total depth (must satisfy ``(depth - 4) % 6 == 0``).
