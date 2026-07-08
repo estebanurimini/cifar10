@@ -103,23 +103,23 @@ def main():
         help="Number of epochs.",
     )
     parser.add_argument(
-        "--augmentation",
+        "--augment",
         type=str,
         default=None,
-        choices=["crop_flip", "randaugment", "autoaugment", "autoaugment_cutout"],
-        help="Per-image augmentation preset (overrides config default).",
+        help="Augmentation profile key or comma-separated curriculum "
+             "(e.g. 'mid', 'lite,mid,strong').",
     )
     parser.add_argument(
-        "--mixup-prob",
-        type=float,
+        "--cutout-size",
+        type=int,
         default=None,
-        help="MixUp probability (0.0 = disabled).",
+        help="Cutout hole size override (e.g. 16).",
     )
     parser.add_argument(
-        "--cutmix-prob",
-        type=float,
+        "--augment-switch-epochs",
+        type=str,
         default=None,
-        help="CutMix probability (0.0 = disabled).",
+        help="Comma-separated curriculum switch epochs (e.g. '50,100').",
     )
     args = parser.parse_args()
 
@@ -163,12 +163,12 @@ def main():
         overrides["lr"] = args.lr
     if args.epochs is not None:
         overrides["epochs"] = args.epochs
-    if args.augmentation is not None:
-        overrides["augmentation"] = args.augmentation
-    if args.mixup_prob is not None:
-        overrides["mixup_prob"] = args.mixup_prob
-    if args.cutmix_prob is not None:
-        overrides["cutmix_prob"] = args.cutmix_prob
+    if args.augment is not None:
+        overrides["augment"] = args.augment
+    if args.cutout_size is not None:
+        overrides["cutout_size"] = args.cutout_size
+    if args.augment_switch_epochs is not None:
+        overrides["augment_switch_epochs"] = args.augment_switch_epochs
 
     cfg = cfg_cls(**overrides)
     set_seed(cfg.seed)

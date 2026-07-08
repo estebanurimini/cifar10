@@ -19,6 +19,11 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 from cifar10.config import BaseConfig
+from cifar10.data.profiles import (
+    AugProfile,
+    resolve_augment,
+    resolve_switch_epochs,
+)
 from cifar10.training.evaluate import evaluate
 from cifar10.training.scheduler import build_scheduler
 from cifar10.utils.checkpoint import save_checkpoint, load_checkpoint
@@ -41,12 +46,13 @@ class TrainerConfig(BaseConfig):
     dropout: float = 0.0
     stochastic_depth: float = 0.0
     momentum: float = 0.9
+    nesterov: bool = False
     run_dir: Path = field(default_factory=lambda: Path("./.runs"))
 
-    # augmentation
-    augmentation: str = "randaugment"  # per-image augmentation preset
-    mixup_prob: float = 0.0            # MixUp probability (0.0 = disabled)
-    cutmix_prob: float = 0.0           # CutMix probability (0.0 = disabled)
+    # augmentation profile / curriculum
+    augment: str = "mid"  # profile key or comma-separated curriculum
+    augment_switch_epochs: str = ""  # comma-separated switch epochs (auto if empty)
+    cutout_size: int | None = None  # optional Cutout hole size override
 
     # optimizer type
     optimizer: str = "adamw"  # "adamw" or "sgd"
@@ -160,6 +166,12 @@ class BaseTrainer(ABC):
         self.last_ckpt = self.checkpoint_dir / "last.pt"
         self.csv_log = self.log_dir / "metrics.csv"
 
+        # Curriculum state
+        self._aug_profiles: list[AugProfile] = []
+        self._switch_epochs: list[int] = []
+        self._train_dataset: Any = None  # set in train(), holds reference for transform swaps
+        self._batch_augment = None  # current batch-level augmentation function
+
         # Write params.json (on first start, not on resume)
         self._write_params_json()
 
@@ -188,6 +200,7 @@ class BaseTrainer(ABC):
                 self.model.parameters(),
                 lr=self.config.lr,
                 momentum=self.config.momentum,
+                nesterov=self.config.nesterov,
                 weight_decay=self.config.weight_decay,
             )
         return torch.optim.AdamW(
@@ -213,6 +226,93 @@ class BaseTrainer(ABC):
         """Subclasses define how the loss is computed for each batch."""
         ...
 
+    def _setup_curriculum(self) -> None:
+        """Resolve augmentation profiles and switch epochs from config.
+
+        Called once at the start of training.
+        """
+        cfg = self.config
+        self._aug_profiles = resolve_augment(cfg.augment, cutout_size=cfg.cutout_size)
+        self._switch_epochs = resolve_switch_epochs(
+            len(self._aug_profiles),
+            cfg.epochs,
+            cfg.augment_switch_epochs,
+        )
+        if len(self._aug_profiles) > 1:
+            stage_names = [p.per_image for p in self._aug_profiles]
+            print(
+                f"[curriculum] {len(self._aug_profiles)} stages: "
+                f"{' -> '.join(stage_names)}",
+            )
+            if self._switch_epochs:
+                print(f"[curriculum] Switch at epochs: {self._switch_epochs}")
+
+    def _on_epoch_start(self, epoch: int) -> None:
+        """Called at the start of each epoch (before training).
+
+        Handles curriculum transitions: swaps the dataset transform and
+        batch-level augmentation when a switch epoch is reached.
+        """
+        if not self._switch_epochs:
+            return
+        for stage_idx, switch_epoch in enumerate(self._switch_epochs):
+            if epoch == switch_epoch:
+                next_profile = self._aug_profiles[stage_idx + 1]
+                print(
+                    f"\n{'=' * 60}"
+                    f"\nEpoch {epoch}: Switching to augmentation stage "
+                    f"{stage_idx + 2}/{len(self._aug_profiles)} "
+                    f"({next_profile.per_image})"
+                    f"\n{'=' * 60}"
+                )
+                # Swap per-image transform on the dataset
+                self._apply_per_image_transform(next_profile)
+                # Rebuild batch augmentation
+                self._rebuild_batch_augment(next_profile)
+                break
+
+    def _apply_per_image_transform(self, profile: AugProfile) -> None:
+        """Swap the per-image transform on the training dataset."""
+        from cifar10.data.cifar10 import _build_train_transform
+
+        if self._train_dataset is None:
+            return
+        new_transform = _build_train_transform(
+            profile.per_image,
+            cutout_size=profile.cutout,
+        )
+        self._train_dataset.transform = new_transform
+
+    def _rebuild_batch_augment(self, profile: AugProfile) -> None:
+        """Rebuild the batch-level augmentation from a profile.
+
+        Override in subclasses that need custom batch augmentation.
+        """
+        self._batch_augment = None
+        if profile.mixup_prob > 0 or profile.cutmix_prob > 0:
+            from cifar10.data.augmentations import build_batch_mixup_cutmix
+
+            self._batch_augment = build_batch_mixup_cutmix(
+                num_classes=10,
+                mixup_alpha=profile.mixup_alpha,
+                cutmix_alpha=profile.cutmix_alpha,
+                mixup_prob=profile.mixup_prob,
+                cutmix_prob=profile.cutmix_prob,
+            )
+
+    def _augment_batch(
+        self,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Apply data augmentations like MixUp/CutMix to a batch.
+
+        Override this in subclasses that need extra augmentation.
+        """
+        if self._batch_augment is not None:
+            return self._batch_augment(images, labels)  # type: ignore[return-value]
+        return images, labels
+
     # ------------------------------------------------------------------
     # Template method
     # ------------------------------------------------------------------
@@ -235,6 +335,12 @@ class BaseTrainer(ABC):
         """
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
+
+        # Store dataset reference for curriculum transform swaps
+        self._train_dataset = train_loader.dataset
+
+        # Set up curriculum (profile resolution + switch epochs)
+        self._setup_curriculum()
 
         # Handle resume
         start_epoch = 1
@@ -290,25 +396,6 @@ class BaseTrainer(ABC):
     # ------------------------------------------------------------------
     # Hook / helper methods (can be overridden by subclasses)
     # ------------------------------------------------------------------
-
-    def _on_epoch_start(self, epoch: int) -> None:
-        """Called at the start of each epoch (before training).
-
-        Override in subclasses that need staged unfreezing, backbone LR
-        adjustment, or other per-epoch setup.
-        """
-        pass
-
-    def _augment_batch(
-        self,
-        images: torch.Tensor,
-        labels: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Apply data augmentations like MixUp/CutMix to a batch.
-
-        Override this in subclasses that need extra augmentation.
-        """
-        return images, labels
 
     def _train_epoch(
         self,

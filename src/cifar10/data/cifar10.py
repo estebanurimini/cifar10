@@ -52,15 +52,25 @@ class _TransformedSubset(Subset):
         return [self.__getitem__(idx) for idx in indices]
 
 
-def _build_train_transform(augmentation: str) -> transforms.Compose:
-    """Build training transform for CIFAR-10 based on an augmentation preset.
+def _build_train_transform(
+    per_image: str,
+    cutout_size: int | None = None,
+) -> transforms.Compose:
+    """Build training transform for CIFAR-10 based on a per-image preset.
 
     Args:
-        augmentation: Preset name. One of:
+        per_image: Preset name. One of:
             - ``"crop_flip"``: RandomCrop + RandomHorizontalFlip only.
             - ``"randaugment"``: Same + RandAugment.
             - ``"autoaugment"``: Same + AutoAugment(CIFAR10).
-            - ``"autoaugment_cutout"``: Same + AutoAugment(CIFAR10) + Cutout(16).
+            - ``"autoaugment_cutout"``: Same + AutoAugment(CIFAR10) +
+              Cutout (whose hole size is determined by ``cutout_size``).
+
+            A profile key that ends with ``"_cutout"`` implies Cutout is wanted;
+            the actual hole size comes from ``cutout_size`` (default 16).
+        cutout_size: Cutout hole size.  If ``None``, Cutout is not applied
+            unless the preset name implies it (``"autoaugment_cutout"``), in
+            which case a default of 16 is used.
 
     Returns:
         A ``transforms.Compose`` pipeline.
@@ -69,17 +79,17 @@ def _build_train_transform(augmentation: str) -> transforms.Compose:
         transforms.RandomCrop(32, padding=4, padding_mode="reflect"),
         transforms.RandomHorizontalFlip(p=0.5),
     ]
-    if augmentation == "crop_flip":
+    if per_image == "crop_flip":
         pass
-    elif augmentation == "randaugment":
+    elif per_image == "randaugment":
         tfms.append(transforms.RandAugment())
-    elif augmentation == "autoaugment":
+    elif per_image == "autoaugment":
         tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
-    elif augmentation == "autoaugment_cutout":
+    elif per_image == "autoaugment_cutout":
         tfms.append(transforms.AutoAugment(policy=AutoAugmentPolicy.CIFAR10))
     else:
         raise ValueError(
-            f"Unknown augmentation preset: {augmentation!r}. "
+            f"Unknown augmentation preset: {per_image!r}. "
             f"Valid options: crop_flip, randaugment, autoaugment, autoaugment_cutout"
         )
 
@@ -89,8 +99,9 @@ def _build_train_transform(augmentation: str) -> transforms.Compose:
     ])
 
     # Cutout is applied after ToTensor + Normalize (operates on Tensor in [0,1])
-    if augmentation == "autoaugment_cutout":
-        tfms.append(Cutout(hole_size=16))
+    if per_image == "autoaugment_cutout":
+        hole = cutout_size if cutout_size is not None else 16
+        tfms.append(Cutout(hole_size=hole))
 
     return transforms.Compose(tfms)
 
@@ -103,7 +114,9 @@ def build_cifar10_loaders(
     with_validation_split: bool = False,
     validation_pct: float = 0.1,
     use_randaugment: bool | None = None,
-    augmentation: str = "randaugment",
+    augmentation: str | None = None,
+    augment: str = "wrn_default",
+    cutout_size: int | None = None,
     download: bool = True,
 ) -> tuple[DataLoader, DataLoader, DataLoader | None]:
     """Build train / validation / test DataLoaders for CIFAR10.
@@ -116,10 +129,12 @@ def build_cifar10_loaders(
         with_validation_split: If True, split a validation set from the 50k
             training samples.
         validation_pct: Fraction of training data to use for validation.
-        use_randaugment: **Deprecated.** Use ``augmentation`` instead.
-        augmentation: Augmentation preset for training transforms.
-            One of ``"crop_flip"``, ``"randaugment"``, ``"autoaugment"``,
-            ``"autoaugment_cutout"``.
+        use_randaugment: **Deprecated.** Use ``augment`` instead.
+        augmentation: **Deprecated.** Use ``augment`` instead.
+        augment: Augmentation profile key (e.g. ``"mid"``) or
+            comma-separated curriculum (e.g. ``"lite,mid,strong"``).
+            The first profile is used for the initial transform.
+        cutout_size: Optional Cutout hole size override.
         download: If True, download the dataset.
 
     Returns:
@@ -128,22 +143,41 @@ def build_cifar10_loaders(
         loader and ``test_loader`` will be ``None``.
 
     """
-    # Handle deprecated use_randaugment parameter
+    # Handle deprecated parameters
     if use_randaugment is not None:
         warnings.warn(
-            "`use_randaugment` is deprecated. Use `augmentation` instead.",
+            "`use_randaugment` is deprecated. Use `augment` instead.",
             DeprecationWarning,
             stacklevel=2,
         )
-        if use_randaugment:
-            augmentation = "randaugment"
-        else:
-            augmentation = "crop_flip"
+        augment = "mid" if use_randaugment else "lite"
+    if augmentation is not None:
+        warnings.warn(
+            "`augmentation` is deprecated. Use `augment` instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # Map old preset names to profile keys
+        aug_to_profile = {
+            "crop_flip": "lite",
+            "randaugment": "mid",
+            "autoaugment": "mid",
+            "autoaugment_cutout": "strong",
+        }
+        augment = aug_to_profile.get(augmentation, augmentation)
+
+    from cifar10.data.profiles import resolve_augment
+
+    profiles = resolve_augment(augment, cutout_size=cutout_size)
+    first_profile = profiles[0]
 
     pin_memory = device is not None and device.type == "cuda"
 
     # --- Transforms -----------------------------------------------------------
-    train_transform = _build_train_transform(augmentation)
+    train_transform = _build_train_transform(
+        first_profile.per_image,
+        cutout_size=first_profile.cutout,
+    )
 
     eval_tfms = transforms.Compose([
         transforms.ToTensor(),

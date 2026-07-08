@@ -20,7 +20,7 @@ class VGGConfig(TrainerConfig):
     data_norm: str = "cifar10"
     lr: float = 0.05
     weight_decay: float = 5e-4
-    warmup_epochs: int = 0
+    warmup_epochs: int = 5
     min_lr: float = 0.0
     momentum: float = 0.9
     epochs: int = 200

@@ -20,13 +20,15 @@ class BasicBlock(nn.Module):
     ):
         super().__init__()
         self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu1 = nn.ReLU(inplace=True)
+        self.act1 = nn.ReLU(inplace=True)
+        # self.act1 = nn.SiLU(inplace=True)
         self.conv1 = nn.Conv2d(
             in_planes, out_planes, kernel_size=3,
             stride=stride, padding=1, bias=False,
         )
         self.bn2 = nn.BatchNorm2d(out_planes)
-        self.relu2 = nn.ReLU(inplace=True)
+        self.act2 = nn.ReLU(inplace=True)
+        # self.act2 = nn.SiLU(inplace=True)
         self.dropout = nn.Dropout(dropout_rate) if dropout_rate > 0 else nn.Identity()
         self.conv2 = nn.Conv2d(
             out_planes, out_planes, kernel_size=3,
@@ -42,10 +44,10 @@ class BasicBlock(nn.Module):
             )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        out = self.relu1(self.bn1(x))
+        out = self.act1(self.bn1(x))
         shortcut = self.shortcut(x)
         out = self.conv1(out)
-        out = self.relu2(self.bn2(out))
+        out = self.act2(self.bn2(out))
         out = self.dropout(out)
         out = self.conv2(out)
         return out + shortcut

@@ -9,6 +9,12 @@ from .augmentations import (
     build_batch_mixup_cutmix,
     Cutout,
 )
+from .profiles import (
+    AugProfile,
+    AUG_PROFILES,
+    resolve_augment,
+    resolve_switch_epochs,
+)
 
 __all__ = [
     "build_cifar10_loaders",
@@ -18,4 +24,8 @@ __all__ = [
     "build_mixup_cutmix",
     "build_batch_mixup_cutmix",
     "Cutout",
+    "AugProfile",
+    "AUG_PROFILES",
+    "resolve_augment",
+    "resolve_switch_epochs",
 ]

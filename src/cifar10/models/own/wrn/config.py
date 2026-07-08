@@ -21,14 +21,14 @@ class WRNConfig(TrainerConfig):
     data_norm: str = "cifar10"
     lr: float = 0.1
     weight_decay: float = 5e-4
-    warmup_epochs: int = 0
-    min_lr: float = 0.0
+    warmup_epochs: int = 5
+    min_lr: float = 1e-4
     momentum: float = 0.9
-    epochs: int = 200
+    nesterov: bool = True
+    ema_decay: float = 0.995
+    epochs: int = 300
     optimizer: str = "sgd"
-    augmentation: str = "randaugment"
-    mixup_prob: float = 0.0
-    cutmix_prob: float = 0.0
+    augment: str = "mid"
     run_dir: Path = field(default_factory=lambda: Path("./.runs/own_wrn"))
 
     def _arch_params(self) -> dict[str, Any]:

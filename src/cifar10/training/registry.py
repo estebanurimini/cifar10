@@ -53,7 +53,8 @@ def _build_cifar10_loaders(cfg: TrainerConfig, device: torch.device):
         num_workers=cfg.num_workers,
         device=device,
         with_validation_split=True,
-        augmentation=cfg.augmentation,
+        augment=cfg.augment,
+        cutout_size=cfg.cutout_size,
     )
 
 
@@ -64,7 +65,8 @@ def _build_cifar10_loaders_no_val_split(cfg: TrainerConfig, device: torch.device
         num_workers=cfg.num_workers,
         device=device,
         with_validation_split=False,
-        augmentation=cfg.augmentation,
+        augment=cfg.augment,
+        cutout_size=cfg.cutout_size,
     )
 
 

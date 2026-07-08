@@ -20,6 +20,7 @@ TRAINING_PARAMS = {
     "epochs", "warmup_epochs", "min_lr",
     "use_randaugment", "use_trivialaugmentwide",
     "augmentation", "mixup_prob", "cutmix_prob",
+    "augment", "augment_switch_epochs", "cutout_size",
     "mixup_alpha", "cutmix_alpha",
     "ema_decay", "dropout", "stochastic_depth",
     "freeze_backbone_epochs", "backbone_lr_scale",
